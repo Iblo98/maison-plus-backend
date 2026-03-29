@@ -4,6 +4,7 @@ require('dotenv').config();
 require('./config/database');
 
 const authRoutes = require('./routes/authRoutes');
+const annoncesRoutes = require('./routes/annoncesRoutes');
 
 const app = express();
 
@@ -14,13 +15,23 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/annonces', annoncesRoutes);
 
 // Route de test
 app.get('/', (req, res) => {
   res.json({
     message: '🏠 Bienvenue sur l\'API Maison+ !',
     version: '1.0.0',
-    statut: 'En ligne'
+    statut: 'En ligne',
+    routes: [
+      'POST /api/auth/inscription',
+      'POST /api/auth/connexion',
+      'GET  /api/annonces',
+      'GET  /api/annonces/:id',
+      'POST /api/annonces',
+      'PUT  /api/annonces/:id',
+      'DELETE /api/annonces/:id'
+    ]
   });
 });
 
