@@ -9,7 +9,6 @@ const creerAnnonce = async (req, res) => {
       adresse_complete, disponible_du, disponible_au
     } = req.body;
 
-    // Vérifications obligatoires
     if (!titre || !categorie || !type_transaction || !prix || !ville) {
       return res.status(400).json({
         succes: false,
@@ -17,10 +16,7 @@ const creerAnnonce = async (req, res) => {
       });
     }
 
-    // Vérifier la catégorie
-    const categoriesValides = [
-      'maison', 'parcelle', 'hotel', 'marketplace', 'restaurant'
-    ];
+    const categoriesValides = ['maison', 'parcelle', 'hotel', 'marketplace', 'restaurant'];
     if (!categoriesValides.includes(categorie)) {
       return res.status(400).json({
         succes: false,
@@ -28,7 +24,6 @@ const creerAnnonce = async (req, res) => {
       });
     }
 
-    // Créer l'annonce
     const nouvelleAnnonce = await pool.query(
       `INSERT INTO annonces 
         (utilisateur_id, titre, description, categorie, type_transaction,
@@ -51,10 +46,7 @@ const creerAnnonce = async (req, res) => {
 
   } catch (erreur) {
     console.error('Erreur création annonce:', erreur);
-    res.status(500).json({
-      succes: false,
-      message: 'Erreur serveur'
-    });
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
@@ -64,7 +56,9 @@ const getAnnonces = async (req, res) => {
     const { ville, categorie, type_transaction, prix_min, prix_max } = req.query;
 
     let query = `
-      SELECT a.*, u.nom, u.prenom, u.est_verifie
+      SELECT a.*, u.nom, u.prenom, u.est_verifie,
+        (SELECT url FROM medias WHERE annonce_id = a.id
+         AND est_principale = true LIMIT 1) as photo_principale
       FROM annonces a
       JOIN utilisateurs u ON a.utilisateur_id = u.id
       WHERE a.statut = 'publiee'
@@ -110,10 +104,7 @@ const getAnnonces = async (req, res) => {
 
   } catch (erreur) {
     console.error('Erreur récupération annonces:', erreur);
-    res.status(500).json({
-      succes: false,
-      message: 'Erreur serveur'
-    });
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
@@ -122,14 +113,15 @@ const getAnnonce = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Incrémenter les vues
     await pool.query(
       'UPDATE annonces SET nb_vues = nb_vues + 1 WHERE id = $1',
       [id]
     );
 
     const annonce = await pool.query(
-      `SELECT a.*, u.nom, u.prenom, u.photo_profil, u.est_verifie, u.telephone
+      `SELECT a.*, u.nom, u.prenom, u.photo_profil, u.est_verifie, u.telephone,
+        (SELECT url FROM medias WHERE annonce_id = a.id
+         AND est_principale = true LIMIT 1) as photo_principale
        FROM annonces a
        JOIN utilisateurs u ON a.utilisateur_id = u.id
        WHERE a.id = $1`,
@@ -150,10 +142,7 @@ const getAnnonce = async (req, res) => {
 
   } catch (erreur) {
     console.error('Erreur récupération annonce:', erreur);
-    res.status(500).json({
-      succes: false,
-      message: 'Erreur serveur'
-    });
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
@@ -163,7 +152,6 @@ const modifierAnnonce = async (req, res) => {
     const { id } = req.params;
     const { titre, description, prix, ville, quartier, disponible_du, disponible_au } = req.body;
 
-    // Vérifier que l'annonce appartient à l'utilisateur
     const annonce = await pool.query(
       'SELECT * FROM annonces WHERE id = $1 AND utilisateur_id = $2',
       [id, req.utilisateur.id]
@@ -198,10 +186,7 @@ const modifierAnnonce = async (req, res) => {
 
   } catch (erreur) {
     console.error('Erreur modification annonce:', erreur);
-    res.status(500).json({
-      succes: false,
-      message: 'Erreur serveur'
-    });
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
@@ -231,10 +216,7 @@ const supprimerAnnonce = async (req, res) => {
 
   } catch (erreur) {
     console.error('Erreur suppression annonce:', erreur);
-    res.status(500).json({
-      succes: false,
-      message: 'Erreur serveur'
-    });
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
