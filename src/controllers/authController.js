@@ -5,9 +5,13 @@ const pool = require('../config/database');
 const {
   envoyerEmailVerification,
   envoyerEmailReinitialisation,
-  envoyerEmailBienvenue
+  envoyerEmailBienvenue,
+  envoyerDossierAdmin,
+  envoyerConfirmationInscription
 } = require('../config/email');
 
+const { genererPDFInscription, genererWordInscription } = require('../config/documents');
+const { creerNotification } = require('./notificationsController');
 // Inscription
 const inscription = async (req, res) => {
   try {
@@ -59,14 +63,24 @@ const inscription = async (req, res) => {
     const emailTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     // Créer l'utilisateur
+    const {
+      type_compte, nom_entreprise, rccm, ifu,
+      secteur_activite, site_web
+    } = req.body;
+
     const nouvelUtilisateur = await pool.query(
       `INSERT INTO utilisateurs 
         (nom, prenom, email, telephone, mot_de_passe,
-         email_verification_token, email_verification_expires, statut)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'en_attente')
-       RETURNING id, nom, prenom, email, telephone, type_compte, statut`,
+        email_verification_token, email_verification_expires,
+        statut, type_compte, nom_entreprise, rccm, ifu,
+        secteur_activite, site_web)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'actif', $8, $9, $10, $11, $12, $13)
+      RETURNING *`,
       [nom, prenom, email, telephone, motDePasseChiffre,
-       emailToken, emailTokenExpires]
+      emailToken, emailTokenExpires,
+      type_compte || 'particulier', nom_entreprise || null,
+      rccm || null, ifu || null,
+      secteur_activite || null, site_web || null]
     );
 
     const utilisateur = nouvelUtilisateur.rows[0];
@@ -75,7 +89,34 @@ const inscription = async (req, res) => {
     try {
       await envoyerEmailVerification(email, prenom, emailToken);
     } catch (emailErr) {
-      console.error('Erreur envoi email:', emailErr);
+      console.error('Erreur envoi email vérification:', emailErr);
+    }
+
+    // Générer documents PDF et Word
+    try {
+      const pdfBuffer = await genererPDFInscription(utilisateur);
+      const wordBuffer = await genererWordInscription(utilisateur);
+
+      // Envoyer dossier à l'admin
+      await envoyerDossierAdmin(utilisateur, pdfBuffer, wordBuffer);
+
+      // Envoyer confirmation à l'utilisateur
+      await envoyerConfirmationInscription(utilisateur, pdfBuffer);
+    } catch (docErr) {
+      console.error('Erreur génération documents:', docErr);
+    }
+
+    // Notification de bienvenue
+    try {
+      await creerNotification(
+        utilisateur.id,
+        'bienvenue',
+        '🎉 Bienvenue sur Maison+ !',
+        `Bonjour ${prenom}, votre compte a été créé avec succès. Complétez votre profil pour publier des annonces.`,
+        '/kyc'
+      );
+    } catch (notifErr) {
+      console.error('Erreur notification bienvenue:', notifErr);
     }
 
     // Générer token JWT
