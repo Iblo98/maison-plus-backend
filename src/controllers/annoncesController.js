@@ -29,7 +29,7 @@ const creerAnnonce = async (req, res) => {
         (utilisateur_id, titre, description, categorie, type_transaction,
          prix, superficie, nb_pieces, ville, quartier, adresse_complete,
          disponible_du, disponible_au, statut)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'en_attente')
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'publiee')
        RETURNING *`,
       [
         req.utilisateur.id, titre, description, categorie, type_transaction,

@@ -204,8 +204,53 @@ const getStatutKYC = async (req, res) => {
   }
 };
 
+// Upload photo de couverture
+const uploadPhotoCouverture = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Photo de couverture obligatoire'
+      });
+    }
+
+    const resultat = await new Promise((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        {
+          folder: `maisonplus/couvertures/${req.utilisateur.id}`,
+          resource_type: 'image',
+          transformation: [
+            { width: 1200, height: 400, crop: 'fill' },
+            { quality: 'auto:good' }
+          ]
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      ).end(req.file.buffer);
+    });
+
+    await pool.query(
+      'UPDATE utilisateurs SET photo_couverture = $1, updated_at = NOW() WHERE id = $2',
+      [resultat.secure_url, req.utilisateur.id]
+    );
+
+    res.json({
+      succes: true,
+      message: 'Photo de couverture mise à jour !',
+      photo_url: resultat.secure_url
+    });
+
+  } catch (erreur) {
+    console.error('Erreur upload couverture:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
 module.exports = {
   uploadPhotoProfil,
+  uploadPhotoCouverture,
   uploadCNIB,
   enregistrerPaiement,
   getStatutKYC

@@ -23,6 +23,17 @@ const upload = multer({
   }
 });
 
+
+const {
+  uploadPhotoProfil,
+  uploadPhotoCouverture,
+  uploadCNIB,
+  enregistrerPaiement,
+  getStatutKYC
+} = require('../controllers/kycController');
+
+router.post('/photo-couverture', proteger, upload.single('photo'), uploadPhotoCouverture);
+
 // Statut KYC
 router.get('/statut', proteger, getStatutKYC);
 
