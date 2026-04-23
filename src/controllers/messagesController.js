@@ -41,15 +41,15 @@ const envoyerMessage = async (req, res) => {
         message: 'Annonce introuvable'
       });
     }
-
-    // Empêcher le propriétaire de se contacter lui-même
-    if (annonce.rows[0].utilisateur_id === req.utilisateur.id) {
-      return res.status(400).json({
-        succes: false,
-        message: 'Vous ne pouvez pas vous contacter vous-même'
-      });
-    }
-
+// Empêcher l'acheteur de contacter lui-même son annonce
+if (annonce.rows[0].utilisateur_id === req.utilisateur.id && 
+    annonce.rows[0].utilisateur_id === destinataire_id) {
+  return res.status(400).json({
+    succes: false,
+    message: 'Vous ne pouvez pas vous contacter vous-même'
+  });
+}
+    
     // Vérifier que c'est bien l'acheteur qui initie (pas le propriétaire)
     const conversationExiste = await pool.query(
       `SELECT * FROM messages 
@@ -157,8 +157,9 @@ const getMesConversations = async (req, res) => {
         a.titre as annonce_titre,
         a.prix as annonce_prix,
         e.nom as expediteur_nom, e.prenom as expediteur_prenom,
-        e.photo_profil as expediteur_photo,
+        e.photo_profil_url as expediteur_photo,
         d.nom as destinataire_nom, d.prenom as destinataire_prenom,
+        d.photo_profil_url as destinataire_photo,
         (SELECT COUNT(*) FROM messages 
          WHERE annonce_id = m.annonce_id 
          AND destinataire_id = $1 
@@ -175,7 +176,6 @@ const getMesConversations = async (req, res) => {
         m.created_at DESC`,
       [req.utilisateur.id]
     );
-
     res.json({
       succes: true,
       total: conversations.rows.length,
