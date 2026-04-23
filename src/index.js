@@ -12,11 +12,12 @@ const messagesRoutes = require('./routes/messagesRoutes');
 const profilRoutes = require('./routes/profilRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const kycRoutes = require('./routes/kycRoutes');
+const notificationsRoutes = require('./routes/notificationsRoutes');
+const { creerNotification } = require('./controllers/notificationsController');
 
 const app = express();
 const serveur = http.createServer(app);
 
-// Socket.io
 const io = new Server(serveur, {
   cors: {
     origin: ['http://localhost:3001', 'http://localhost:3000'],
@@ -24,7 +25,6 @@ const io = new Server(serveur, {
   }
 });
 
-// Middlewares
 app.use(cors({
   origin: ['http://localhost:3001', 'http://localhost:3000'],
   credentials: true
@@ -32,7 +32,6 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rendre io accessible dans les controllers
 app.set('io', io);
 
 // Routes
@@ -43,48 +42,53 @@ app.use('/api/messages', messagesRoutes);
 app.use('/api/profil', profilRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/kyc', kycRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
-// Route de test
 app.get('/', (req, res) => {
-  res.json({
-    message: '🏠 Bienvenue sur l\'API Maison+ !',
-    version: '1.0.0',
-    statut: 'En ligne'
-  });
+  res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
 
-// Gestion Socket.io
+// Socket.io
 const utilisateursConnectes = new Map();
 
 io.on('connection', (socket) => {
-  console.log('Utilisateur connecté:', socket.id);
-
-  // Rejoindre sa salle personnelle
   socket.on('rejoindre', (utilisateurId) => {
     socket.join(`user_${utilisateurId}`);
     utilisateursConnectes.set(utilisateurId, socket.id);
-    console.log(`Utilisateur ${utilisateurId} connecté`);
   });
 
-  // Rejoindre une conversation
   socket.on('rejoindre_conversation', ({ annonceId, userId1, userId2 }) => {
     const salle = `conv_${annonceId}_${[userId1, userId2].sort().join('_')}`;
     socket.join(salle);
   });
 
-  // Envoyer un message en temps réel
-  socket.on('nouveau_message', (message) => {
+  socket.on('nouveau_message', async (message) => {
     const salle = `conv_${message.annonce_id}_${[message.expediteur_id, message.destinataire_id].sort().join('_')}`;
     io.to(salle).emit('message_recu', message);
-    // Notifier le destinataire
+
+    // Notification en temps réel
     io.to(`user_${message.destinataire_id}`).emit('notification_message', message);
+
+    // Créer notification en base
+    await creerNotification(
+      message.destinataire_id,
+      'message',
+      'Nouveau message',
+      `${message.expediteur_prenom || 'Quelqu\'un'} vous a envoyé un message`,
+      `/messages?annonce=${message.annonce_id}&destinataire=${message.expediteur_id}`
+    );
+
+    // Envoyer la notification socket
+    io.to(`user_${message.destinataire_id}`).emit('nouvelle_notification', {
+      type: 'message',
+      titre: 'Nouveau message',
+      message: `${message.expediteur_prenom || 'Quelqu\'un'} vous a envoyé un message`
+    });
   });
 
   socket.on('disconnect', () => {
     utilisateursConnectes.forEach((socketId, userId) => {
-      if (socketId === socket.id) {
-        utilisateursConnectes.delete(userId);
-      }
+      if (socketId === socket.id) utilisateursConnectes.delete(userId);
     });
   });
 });
