@@ -4,6 +4,7 @@ const multer = require('multer');
 const { proteger } = require('../middlewares/authMiddleware');
 const {
   uploadPhotoProfil,
+  uploadPhotoCouverture,
   uploadCNIB,
   enregistrerPaiement,
   getStatutKYC
@@ -24,13 +25,6 @@ const upload = multer({
 });
 
 
-const {
-  uploadPhotoProfil,
-  uploadPhotoCouverture,
-  uploadCNIB,
-  enregistrerPaiement,
-  getStatutKYC
-} = require('../controllers/kycController');
 
 router.post('/photo-couverture', proteger, upload.single('photo'), uploadPhotoCouverture);
 
