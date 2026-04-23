@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 require('./config/database');
 
@@ -12,6 +14,15 @@ const adminRoutes = require('./routes/adminRoutes');
 const kycRoutes = require('./routes/kycRoutes');
 
 const app = express();
+const serveur = http.createServer(app);
+
+// Socket.io
+const io = new Server(serveur, {
+  cors: {
+    origin: ['http://localhost:3001', 'http://localhost:3000'],
+    credentials: true
+  }
+});
 
 // Middlewares
 app.use(cors({
@@ -20,6 +31,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Rendre io accessible dans les controllers
+app.set('io', io);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -39,7 +53,43 @@ app.get('/', (req, res) => {
   });
 });
 
+// Gestion Socket.io
+const utilisateursConnectes = new Map();
+
+io.on('connection', (socket) => {
+  console.log('Utilisateur connecté:', socket.id);
+
+  // Rejoindre sa salle personnelle
+  socket.on('rejoindre', (utilisateurId) => {
+    socket.join(`user_${utilisateurId}`);
+    utilisateursConnectes.set(utilisateurId, socket.id);
+    console.log(`Utilisateur ${utilisateurId} connecté`);
+  });
+
+  // Rejoindre une conversation
+  socket.on('rejoindre_conversation', ({ annonceId, userId1, userId2 }) => {
+    const salle = `conv_${annonceId}_${[userId1, userId2].sort().join('_')}`;
+    socket.join(salle);
+  });
+
+  // Envoyer un message en temps réel
+  socket.on('nouveau_message', (message) => {
+    const salle = `conv_${message.annonce_id}_${[message.expediteur_id, message.destinataire_id].sort().join('_')}`;
+    io.to(salle).emit('message_recu', message);
+    // Notifier le destinataire
+    io.to(`user_${message.destinataire_id}`).emit('notification_message', message);
+  });
+
+  socket.on('disconnect', () => {
+    utilisateursConnectes.forEach((socketId, userId) => {
+      if (socketId === socket.id) {
+        utilisateursConnectes.delete(userId);
+      }
+    });
+  });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+serveur.listen(PORT, () => {
   console.log(`🚀 Serveur Maison+ démarré sur le port ${PORT}`);
 });
