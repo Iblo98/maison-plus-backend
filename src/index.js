@@ -16,6 +16,8 @@ const notificationsRoutes = require('./routes/notificationsRoutes');
 const paiementsRoutes = require('./routes/paiementsRoutes');
 const { creerNotification } = require('./controllers/notificationsController');
 const deviseRoutes = require('./routes/deviseRoutes');
+const avisRoutes = require('./routes/avisRoutes');
+app.use('/api/avis', avisRoutes);
 const app = express();
 app.use('/api/devise', deviseRoutes);
 const serveur = http.createServer(app);
