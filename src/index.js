@@ -13,6 +13,7 @@ const profilRoutes = require('./routes/profilRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const kycRoutes = require('./routes/kycRoutes');
 const notificationsRoutes = require('./routes/notificationsRoutes');
+const paiementsRoutes = require('./routes/paiementsRoutes');
 const { creerNotification } = require('./controllers/notificationsController');
 
 const app = express();
@@ -43,7 +44,7 @@ app.use('/api/profil', profilRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/notifications', notificationsRoutes);
-
+app.use('/api/paiements', paiementsRoutes);
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
