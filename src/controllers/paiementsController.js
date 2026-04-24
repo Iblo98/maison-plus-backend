@@ -9,11 +9,7 @@ const {
   verifierPaiementFlutterwave
 } = require('../config/paiement');
 const { creerNotification } = require('./notificationsController');
-const { genererPDFInscription } = require('../config/documents');
-const { envoyerConfirmationInscription } = require('../config/email');
-
 const { genererRecuPaiement } = require('../config/documents');
-const { envoyerConfirmationInscription } = require('../config/email');
 const nodemailer = require('nodemailer');
 // Initier un paiement
 const initierPaiement = async (req, res) => {

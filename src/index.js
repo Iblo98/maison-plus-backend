@@ -16,7 +16,9 @@ const notificationsRoutes = require('./routes/notificationsRoutes');
 const paiementsRoutes = require('./routes/paiementsRoutes');
 const deviseRoutes = require('./routes/deviseRoutes');
 const avisRoutes = require('./routes/avisRoutes');
+const sponsorisationsRoutes = require('./routes/sponsorisationsRoutes');
 const { creerNotification } = require('./controllers/notificationsController');
+const { nettoyerSporisationsExpirees } = require('./controllers/sponsorisationsController');
 
 const app = express();
 const serveur = http.createServer(app);
@@ -49,6 +51,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/paiements', paiementsRoutes);
 app.use('/api/devise', deviseRoutes);
 app.use('/api/avis', avisRoutes);
+app.use('/api/sponsorisations', sponsorisationsRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
@@ -95,6 +98,10 @@ io.on('connection', (socket) => {
     });
   });
 });
+
+// Nettoyer les sponsorisations expirées toutes les heures
+setInterval(nettoyerSporisationsExpirees, 3600000);
+nettoyerSporisationsExpirees();
 
 const PORT = process.env.PORT || 3000;
 serveur.listen(PORT, () => {
