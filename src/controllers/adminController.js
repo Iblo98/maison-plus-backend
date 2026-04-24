@@ -1,79 +1,172 @@
 const pool = require('../config/database');
 
-// Middleware admin
-const estAdmin = async (req, res, next) => {
-  if (req.utilisateur.type_compte !== 'admin') {
-    return res.status(403).json({
-      succes: false,
-      message: 'Accès réservé aux administrateurs'
-    });
-  }
-  next();
-};
-
-// Tableau de bord admin
+// Dashboard admin
 const getDashboard = async (req, res) => {
   try {
     const stats = await pool.query(`
       SELECT
         (SELECT COUNT(*) FROM utilisateurs) as total_utilisateurs,
-        (SELECT COUNT(*) FROM utilisateurs WHERE statut = 'en_attente') as utilisateurs_en_attente,
         (SELECT COUNT(*) FROM annonces) as total_annonces,
-        (SELECT COUNT(*) FROM annonces WHERE statut = 'en_attente') as annonces_en_attente,
-        (SELECT COUNT(*) FROM annonces WHERE statut = 'publiee') as annonces_publiees,
-        (SELECT COUNT(*) FROM messages WHERE est_suspect = true) as messages_suspects,
-        (SELECT COUNT(*) FROM litiges WHERE statut = 'ouvert') as litiges_ouverts,
+        (SELECT COUNT(*) FROM paiements) as total_paiements,
+        (SELECT COUNT(*) FROM litiges) as total_litiges,
+        (SELECT COALESCE(SUM(commission_plateforme), 0) FROM paiements WHERE statut = 'complete') as total_commissions,
+        (SELECT COALESCE(SUM(commission_plateforme), 0) FROM paiements 
+         WHERE statut = 'complete' 
+         AND created_at >= date_trunc('month', NOW())) as commissions_mois,
         (SELECT COUNT(*) FROM paiements WHERE statut = 'complete') as paiements_completes
+    `);
+
+    const derniersUtilisateurs = await pool.query(`
+      SELECT id, nom, prenom, email, telephone, type_compte, 
+             statut, photo_profil_url, email_verifie, 
+             cnib_recto_url, created_at
+      FROM utilisateurs 
+      ORDER BY created_at DESC 
+      LIMIT 10
+    `);
+
+    const dernieresAnnonces = await pool.query(`
+      SELECT a.*, u.nom, u.prenom,
+        (SELECT url FROM medias WHERE annonce_id = a.id 
+         AND est_principale = true LIMIT 1) as photo_principale
+      FROM annonces a
+      JOIN utilisateurs u ON a.utilisateur_id = u.id
+      ORDER BY a.created_at DESC 
+      LIMIT 5
     `);
 
     res.json({
       succes: true,
-      dashboard: stats.rows[0]
+      stats: stats.rows[0],
+      derniers_utilisateurs: derniersUtilisateurs.rows,
+      dernieres_annonces: dernieresAnnonces.rows
     });
 
   } catch (erreur) {
-    console.error('Erreur dashboard:', erreur);
+    console.error('Erreur dashboard admin:', erreur);
     res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
-// Valider ou rejeter une annonce
-const modererAnnonce = async (req, res) => {
+// Tous les utilisateurs
+const getTousUtilisateurs = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { action, motif } = req.body;
+    const { recherche, type_compte, statut } = req.query;
 
-    const actionsValides = ['publier', 'rejeter', 'suspendre'];
-    if (!actionsValides.includes(action)) {
-      return res.status(400).json({
-        succes: false,
-        message: 'Action invalide. Utilisez: publier, rejeter ou suspendre'
-      });
+    let query = `
+      SELECT id, nom, prenom, email, telephone, type_compte,
+             statut, photo_profil_url, email_verifie,
+             cnib_recto_url, cnib_verso_url, mobile_money_numero,
+             mobile_money_operateur, nom_entreprise, rccm, ifu,
+             created_at
+      FROM utilisateurs
+      WHERE 1=1
+    `;
+    const params = [];
+    let compteur = 1;
+
+    if (recherche) {
+      query += ` AND (nom ILIKE $${compteur} OR prenom ILIKE $${compteur} OR email ILIKE $${compteur} OR telephone ILIKE $${compteur})`;
+      params.push(`%${recherche}%`);
+      compteur++;
+    }
+    if (type_compte) {
+      query += ` AND type_compte = $${compteur}`;
+      params.push(type_compte);
+      compteur++;
+    }
+    if (statut) {
+      query += ` AND statut = $${compteur}`;
+      params.push(statut);
+      compteur++;
     }
 
-    const statutMap = {
-      'publier': 'publiee',
-      'rejeter': 'rejetee',
-      'suspendre': 'suspendue'
-    };
+    query += ' ORDER BY created_at DESC';
 
-    const annonce = await pool.query(
-      `UPDATE annonces SET statut = $1, updated_at = NOW()
-       WHERE id = $2 RETURNING *`,
-      [statutMap[action], id]
-    );
-
-    if (annonce.rows.length === 0) {
-      return res.status(404).json({
-        succes: false,
-        message: 'Annonce introuvable'
-      });
-    }
+    const utilisateurs = await pool.query(query, params);
 
     res.json({
       succes: true,
-      message: `Annonce ${action}ée avec succès !`,
-      annonce: annonce.rows[0]
+      total: utilisateurs.rows.length,
+      utilisateurs: utilisateurs.rows
+    });
+
+  } catch (erreur) {
+    console.error('Erreur liste utilisateurs:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
+// Toutes les annonces
+const getToutesAnnonces = async (req, res) => {
+  try {
+    const { recherche, statut, categorie } = req.query;
+
+    let query = `
+      SELECT a.*, u.nom, u.prenom, u.email,
+        (SELECT url FROM medias WHERE annonce_id = a.id 
+         AND est_principale = true LIMIT 1) as photo_principale
+      FROM annonces a
+      JOIN utilisateurs u ON a.utilisateur_id = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+    let compteur = 1;
+
+    if (recherche) {
+      query += ` AND (a.titre ILIKE $${compteur} OR a.ville ILIKE $${compteur} OR a.quartier ILIKE $${compteur})`;
+      params.push(`%${recherche}%`);
+      compteur++;
+    }
+    if (statut) {
+      query += ` AND a.statut = $${compteur}`;
+      params.push(statut);
+      compteur++;
+    }
+    if (categorie) {
+      query += ` AND a.categorie = $${compteur}`;
+      params.push(categorie);
+      compteur++;
+    }
+
+    query += ' ORDER BY a.created_at DESC';
+
+    const annonces = await pool.query(query, params);
+
+    res.json({
+      succes: true,
+      total: annonces.rows.length,
+      annonces: annonces.rows
+    });
+
+  } catch (erreur) {
+    console.error('Erreur liste annonces:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
+// Modérer une annonce
+const modererAnnonce = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { statut, motif } = req.body;
+
+    const statutsValides = ['publiee', 'rejetee', 'suspendue', 'en_attente'];
+    if (!statutsValides.includes(statut)) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Statut invalide'
+      });
+    }
+
+    await pool.query(
+      'UPDATE annonces SET statut = $1, updated_at = NOW() WHERE id = $2',
+      [statut, id]
+    );
+
+    res.json({
+      succes: true,
+      message: `Annonce ${statut} avec succès`
     });
 
   } catch (erreur) {
@@ -82,18 +175,18 @@ const modererAnnonce = async (req, res) => {
   }
 };
 
-// Lister les annonces en attente
+// Annonces en attente
 const getAnnoncesEnAttente = async (req, res) => {
   try {
-    const annonces = await pool.query(
-      `SELECT a.*, u.nom, u.prenom, u.email, u.est_verifie,
+    const annonces = await pool.query(`
+      SELECT a.*, u.nom, u.prenom, u.email,
         (SELECT url FROM medias WHERE annonce_id = a.id 
          AND est_principale = true LIMIT 1) as photo_principale
-       FROM annonces a
-       JOIN utilisateurs u ON a.utilisateur_id = u.id
-       WHERE a.statut = 'en_attente'
-       ORDER BY a.created_at ASC`
-    );
+      FROM annonces a
+      JOIN utilisateurs u ON a.utilisateur_id = u.id
+      WHERE a.statut = 'en_attente'
+      ORDER BY a.created_at ASC
+    `);
 
     res.json({
       succes: true,
@@ -107,53 +200,40 @@ const getAnnoncesEnAttente = async (req, res) => {
   }
 };
 
-// Gérer les utilisateurs
+// Modérer un utilisateur
 const modererUtilisateur = async (req, res) => {
   try {
     const { id } = req.params;
-    const { action } = req.body;
+    const { statut } = req.body;
 
-    const actionsValides = ['verifier', 'suspendre', 'bannir', 'activer'];
-    if (!actionsValides.includes(action)) {
+    const statutsValides = ['actif', 'banni', 'suspendu', 'en_attente'];
+    if (!statutsValides.includes(statut)) {
       return res.status(400).json({
         succes: false,
-        message: 'Action invalide'
+        message: 'Statut invalide'
       });
     }
 
-    const statutMap = {
-      'verifier': 'verifie',
-      'suspendre': 'suspendu',
-      'bannir': 'banni',
-      'activer': 'actif'
-    };
-
-    const estVerifie = action === 'verifier' ? true : undefined;
-
-    let query = `UPDATE utilisateurs SET statut = $1, updated_at = NOW()`;
-    const params = [statutMap[action]];
-
-    if (estVerifie !== undefined) {
-      query += `, est_verifie = $2 WHERE id = $3 RETURNING id, nom, prenom, email, statut, est_verifie`;
-      params.push(estVerifie, id);
-    } else {
-      query += ` WHERE id = $2 RETURNING id, nom, prenom, email, statut, est_verifie`;
-      params.push(id);
-    }
-
-    const utilisateur = await pool.query(query, params);
-
-    if (utilisateur.rows.length === 0) {
-      return res.status(404).json({
+    // Ne pas modifier le compte admin
+    const utilisateur = await pool.query(
+      'SELECT type_compte FROM utilisateurs WHERE id = $1',
+      [id]
+    );
+    if (utilisateur.rows[0]?.type_compte === 'admin') {
+      return res.status(403).json({
         succes: false,
-        message: 'Utilisateur introuvable'
+        message: 'Impossible de modifier un compte admin'
       });
     }
+
+    await pool.query(
+      'UPDATE utilisateurs SET statut = $1, updated_at = NOW() WHERE id = $2',
+      [statut, id]
+    );
 
     res.json({
       succes: true,
-      message: `Utilisateur ${action}é avec succès !`,
-      utilisateur: utilisateur.rows[0]
+      message: `Utilisateur ${statut} avec succès`
     });
 
   } catch (erreur) {
@@ -162,21 +242,22 @@ const modererUtilisateur = async (req, res) => {
   }
 };
 
-// Gérer les litiges
+// Litiges
 const getLitiges = async (req, res) => {
   try {
-    const litiges = await pool.query(
-      `SELECT l.*,
-        p.nom as plaignant_nom, p.prenom as plaignant_prenom,
-        a.nom as accuse_nom, a.prenom as accuse_prenom,
-        pay.montant, pay.devise
-       FROM litiges l
-       JOIN utilisateurs p ON l.plaignant_id = p.id
-       JOIN utilisateurs a ON l.accuse_id = a.id
-       LEFT JOIN paiements pay ON l.paiement_id = pay.id
-       WHERE l.statut = 'ouvert'
-       ORDER BY l.created_at ASC`
-    );
+    const litiges = await pool.query(`
+      SELECT l.*,
+        u_plaignant.nom as plaignant_nom,
+        u_plaignant.prenom as plaignant_prenom,
+        u_accuse.nom as accuse_nom,
+        u_accuse.prenom as accuse_prenom,
+        p.montant, p.reference_transaction
+      FROM litiges l
+      JOIN utilisateurs u_plaignant ON l.plaignant_id = u_plaignant.id
+      JOIN utilisateurs u_accuse ON l.accuse_id = u_accuse.id
+      JOIN paiements p ON l.paiement_id = p.id
+      ORDER BY l.created_at DESC
+    `);
 
     res.json({
       succes: true,
@@ -190,33 +271,25 @@ const getLitiges = async (req, res) => {
   }
 };
 
-// Résoudre un litige
+// Résoudre litige
 const resoudreLitige = async (req, res) => {
   try {
     const { id } = req.params;
     const { decision, statut } = req.body;
 
-    const litige = await pool.query(
-      `UPDATE litiges SET
-        decision = $1,
-        statut = $2,
+    await pool.query(
+      `UPDATE litiges SET 
+        statut = $1, 
+        decision = $2,
         admin_id = $3,
         updated_at = NOW()
-       WHERE id = $4 RETURNING *`,
-      [decision, statut, req.utilisateur.id, id]
+       WHERE id = $4`,
+      [statut || 'resolu', decision, req.utilisateur.id, id]
     );
-
-    if (litige.rows.length === 0) {
-      return res.status(404).json({
-        succes: false,
-        message: 'Litige introuvable'
-      });
-    }
 
     res.json({
       succes: true,
-      message: 'Litige résolu !',
-      litige: litige.rows[0]
+      message: 'Litige résolu avec succès'
     });
 
   } catch (erreur) {
@@ -226,8 +299,9 @@ const resoudreLitige = async (req, res) => {
 };
 
 module.exports = {
-  estAdmin,
   getDashboard,
+  getTousUtilisateurs,
+  getToutesAnnonces,
   modererAnnonce,
   getAnnoncesEnAttente,
   modererUtilisateur,
