@@ -6,8 +6,11 @@ const {
   getAnnonces,
   getAnnonce,
   modifierAnnonce,
-  supprimerAnnonce
+  supprimerAnnonce,
+  marquerStatut
 } = require('../controllers/annoncesController');
+
+router.put('/:id/statut', proteger, marquerStatut);
 
 // Routes publiques (sans connexion)
 router.get('/', getAnnonces);

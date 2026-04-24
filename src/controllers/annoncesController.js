@@ -220,10 +220,60 @@ const supprimerAnnonce = async (req, res) => {
   }
 };
 
+// Marquer annonce comme louée ou vendue
+const marquerStatut = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { statut } = req.body;
+
+    const statutsValides = ['loue', 'vendu', 'publiee'];
+    if (!statutsValides.includes(statut)) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Statut invalide. Utilisez: loue, vendu, publiee'
+      });
+    }
+
+    // Vérifier que l'annonce appartient à l'utilisateur
+    const annonce = await pool.query(
+      'SELECT * FROM annonces WHERE id = $1 AND utilisateur_id = $2',
+      [id, req.utilisateur.id]
+    );
+
+    if (annonce.rows.length === 0) {
+      return res.status(403).json({
+        succes: false,
+        message: 'Annonce introuvable ou non autorisé'
+      });
+    }
+
+    await pool.query(
+      'UPDATE annonces SET statut = $1, updated_at = NOW() WHERE id = $2',
+      [statut, id]
+    );
+
+    const messages = {
+      'loue': 'Annonce marquée comme louée !',
+      'vendu': 'Annonce marquée comme vendue !',
+      'publiee': 'Annonce remise en ligne !'
+    };
+
+    res.json({
+      succes: true,
+      message: messages[statut]
+    });
+
+  } catch (erreur) {
+    console.error('Erreur statut annonce:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
 module.exports = {
   creerAnnonce,
   getAnnonces,
   getAnnonce,
   modifierAnnonce,
-  supprimerAnnonce
+  supprimerAnnonce,
+  marquerStatut
 };
