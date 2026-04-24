@@ -15,8 +15,9 @@ const kycRoutes = require('./routes/kycRoutes');
 const notificationsRoutes = require('./routes/notificationsRoutes');
 const paiementsRoutes = require('./routes/paiementsRoutes');
 const { creerNotification } = require('./controllers/notificationsController');
-
+const deviseRoutes = require('./routes/deviseRoutes');
 const app = express();
+app.use('/api/devise', deviseRoutes);
 const serveur = http.createServer(app);
 
 const io = new Server(serveur, {
