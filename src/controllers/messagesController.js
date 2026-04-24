@@ -17,19 +17,85 @@ const estSuspect = (contenu) => {
   return motTrouve || lienTrouve;
 };
 
+// Système de filtrage des messages suspects
+const analyserMessage = (contenu) => {
+  const resultats = {
+    estSuspect: false,
+    raisons: []
+  };
+
+  const texte = contenu.toLowerCase();
+
+  // Liens externes suspects
+  const liensExternes = [
+    'whatsapp', 'wa.me', 'telegram', 't.me',
+    'facebook', 'fb.com', 'instagram',
+    'http://', 'https://', 'www.',
+    'bit.ly', 'tinyurl'
+  ];
+  liensExternes.forEach(lien => {
+    if (texte.includes(lien)) {
+      resultats.estSuspect = true;
+      resultats.raisons.push(`Lien externe détecté : ${lien}`);
+    }
+  });
+
+  // Mots suspects d'arnaque
+  const motsArnaque = [
+    'western union', 'moneygram', 'wire transfer',
+    'virement urgent', 'transfert urgent',
+    'arnaque', 'scam', 'fraud',
+    'cliquez ici', 'click here',
+    'gagner de l\'argent', 'make money',
+    'investissement garanti', 'guaranteed investment',
+    'mot de passe', 'password', 'code secret',
+    'données bancaires', 'numéro de carte',
+    'prince nigerian', 'héritage',
+  ];
+  motsArnaque.forEach(mot => {
+    if (texte.includes(mot)) {
+      resultats.estSuspect = true;
+      resultats.raisons.push(`Mot suspect détecté : ${mot}`);
+    }
+  });
+
+  // Numéros de téléphone (pattern Burkina et international)
+  const regexTelephone = /(\+?226\s?)?([0-9]{2}\s?){4}|(\+?[0-9]{10,13})/g;
+  if (regexTelephone.test(contenu)) {
+    resultats.estSuspect = true;
+    resultats.raisons.push('Numéro de téléphone détecté');
+  }
+
+  // Emails dans le message
+  const regexEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  if (regexEmail.test(contenu)) {
+    resultats.estSuspect = true;
+    resultats.raisons.push('Adresse email détectée');
+  }
+
+  return resultats;
+};
+
 // Envoyer un message
 const envoyerMessage = async (req, res) => {
   try {
     const { annonce_id, destinataire_id, contenu } = req.body;
 
-    if (!annonce_id || !destinataire_id || !contenu) {
+    if (!contenu || contenu.trim().length === 0) {
       return res.status(400).json({
         succes: false,
-        message: 'Annonce, destinataire et contenu sont obligatoires'
+        message: 'Le message ne peut pas être vide'
       });
     }
 
-    // Vérifier que l'annonce existe
+    if (contenu.length > 2000) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Le message ne peut pas dépasser 2000 caractères'
+      });
+    }
+
+    // Vérifier l'annonce
     const annonce = await pool.query(
       'SELECT * FROM annonces WHERE id = $1',
       [annonce_id]
@@ -41,51 +107,52 @@ const envoyerMessage = async (req, res) => {
         message: 'Annonce introuvable'
       });
     }
-// Empêcher l'acheteur de contacter lui-même son annonce
-if (annonce.rows[0].utilisateur_id === req.utilisateur.id && 
-    annonce.rows[0].utilisateur_id === destinataire_id) {
-  return res.status(400).json({
-    succes: false,
-    message: 'Vous ne pouvez pas vous contacter vous-même'
-  });
-}
-    
-    // Vérifier que c'est bien l'acheteur qui initie (pas le propriétaire)
-    const conversationExiste = await pool.query(
-      `SELECT * FROM messages 
-       WHERE annonce_id = $1 
-       AND ((expediteur_id = $2 AND destinataire_id = $3)
-       OR (expediteur_id = $3 AND destinataire_id = $2))`,
-      [annonce_id, req.utilisateur.id, destinataire_id]
-    );
 
-    // Si première fois, vérifier que c'est l'acheteur qui initie
-    if (conversationExiste.rows.length === 0) {
-      if (annonce.rows[0].utilisateur_id !== destinataire_id) {
-        return res.status(400).json({
-          succes: false,
-          message: 'Seul l\'acheteur peut initier une conversation'
-        });
-      }
-    }
-
-    // Vérifier si le message est suspect
-    const suspect = estSuspect(contenu);
-
-    if (suspect) {
+    // Empêcher l'acheteur de contacter lui-même son annonce
+    if (annonce.rows[0].utilisateur_id === req.utilisateur.id &&
+        annonce.rows[0].utilisateur_id === destinataire_id) {
       return res.status(400).json({
         succes: false,
-        message: 'Message non envoyé — contenu suspect détecté. Évitez les liens et mots liés aux arnaques.'
+        message: 'Vous ne pouvez pas vous contacter vous-même'
       });
     }
 
-    // Enregistrer le message
+    // Analyser le message
+    const analyse = analyserMessage(contenu);
+
+    if (analyse.estSuspect) {
+      // Enregistrer le message comme suspect mais bloquer l'envoi
+      await pool.query(
+        `INSERT INTO messages
+          (annonce_id, expediteur_id, destinataire_id, contenu, est_suspect)
+         VALUES ($1, $2, $3, $4, true)`,
+        [annonce_id, req.utilisateur.id, destinataire_id, contenu]
+      );
+
+      return res.status(400).json({
+        succes: false,
+        message: 'Votre message contient des éléments non autorisés sur Maison+. Évitez de partager des liens, numéros de téléphone ou emails dans les messages.',
+        raisons: analyse.raisons
+      });
+    }
+
+    // Envoyer le message normal
     const message = await pool.query(
-      `INSERT INTO messages 
+      `INSERT INTO messages
         (annonce_id, expediteur_id, destinataire_id, contenu, est_suspect)
-       VALUES ($1, $2, $3, $4, $5)
+       VALUES ($1, $2, $3, $4, false)
        RETURNING *`,
-      [annonce_id, req.utilisateur.id, destinataire_id, contenu, suspect]
+      [annonce_id, req.utilisateur.id, destinataire_id, contenu]
+    );
+
+    // Marquer les anciens messages comme lus
+    await pool.query(
+      `UPDATE messages SET est_lu = true
+       WHERE annonce_id = $1
+       AND destinataire_id = $2
+       AND expediteur_id = $3
+       AND est_lu = false`,
+      [annonce_id, req.utilisateur.id, destinataire_id]
     );
 
     res.status(201).json({
@@ -96,13 +163,9 @@ if (annonce.rows[0].utilisateur_id === req.utilisateur.id &&
 
   } catch (erreur) {
     console.error('Erreur envoi message:', erreur);
-    res.status(500).json({
-      succes: false,
-      message: 'Erreur serveur'
-    });
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
-
 // Récupérer une conversation
 const getConversation = async (req, res) => {
   try {

@@ -14,12 +14,11 @@ const adminRoutes = require('./routes/adminRoutes');
 const kycRoutes = require('./routes/kycRoutes');
 const notificationsRoutes = require('./routes/notificationsRoutes');
 const paiementsRoutes = require('./routes/paiementsRoutes');
-const { creerNotification } = require('./controllers/notificationsController');
 const deviseRoutes = require('./routes/deviseRoutes');
 const avisRoutes = require('./routes/avisRoutes');
-app.use('/api/avis', avisRoutes);
+const { creerNotification } = require('./controllers/notificationsController');
+
 const app = express();
-app.use('/api/devise', deviseRoutes);
 const serveur = http.createServer(app);
 
 const io = new Server(serveur, {
@@ -48,6 +47,9 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/paiements', paiementsRoutes);
+app.use('/api/devise', deviseRoutes);
+app.use('/api/avis', avisRoutes);
+
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
@@ -70,10 +72,8 @@ io.on('connection', (socket) => {
     const salle = `conv_${message.annonce_id}_${[message.expediteur_id, message.destinataire_id].sort().join('_')}`;
     io.to(salle).emit('message_recu', message);
 
-    // Notification en temps réel
     io.to(`user_${message.destinataire_id}`).emit('notification_message', message);
 
-    // Créer notification en base
     await creerNotification(
       message.destinataire_id,
       'message',
@@ -82,7 +82,6 @@ io.on('connection', (socket) => {
       `/messages?annonce=${message.annonce_id}&destinataire=${message.expediteur_id}`
     );
 
-    // Envoyer la notification socket
     io.to(`user_${message.destinataire_id}`).emit('nouvelle_notification', {
       type: 'message',
       titre: 'Nouveau message',
