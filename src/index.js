@@ -19,6 +19,7 @@ const avisRoutes = require('./routes/avisRoutes');
 const sponsorisationsRoutes = require('./routes/sponsorisationsRoutes');
 const { creerNotification } = require('./controllers/notificationsController');
 const { nettoyerSporisationsExpirees } = require('./controllers/sponsorisationsController');
+const documentsRoutes = require('./routes/documentsRoutes');
 
 const app = express();
 const serveur = http.createServer(app);
@@ -52,6 +53,7 @@ app.use('/api/paiements', paiementsRoutes);
 app.use('/api/devise', deviseRoutes);
 app.use('/api/avis', avisRoutes);
 app.use('/api/sponsorisations', sponsorisationsRoutes);
+app.use('/api/documents', documentsRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
