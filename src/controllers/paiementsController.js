@@ -12,6 +12,9 @@ const { creerNotification } = require('./notificationsController');
 const { genererPDFInscription } = require('../config/documents');
 const { envoyerConfirmationInscription } = require('../config/email');
 
+const { genererRecuPaiement } = require('../config/documents');
+const { envoyerConfirmationInscription } = require('../config/email');
+const nodemailer = require('nodemailer');
 // Initier un paiement
 const initierPaiement = async (req, res) => {
   try {
@@ -295,11 +298,157 @@ const getCommission = async (req, res) => {
   }
 };
 
+
+// Générer et télécharger le reçu PDF
+const telechargerRecu = async (req, res) => {
+  try {
+    const { reference } = req.params;
+
+    const paiement = await pool.query(
+      `SELECT p.*,
+        a.titre as annonce_titre, a.categorie, a.type_transaction, a.ville,
+        u_acheteur.nom as acheteur_nom, u_acheteur.prenom as acheteur_prenom,
+        u_acheteur.email as acheteur_email,
+        u_vendeur.nom as vendeur_nom, u_vendeur.prenom as vendeur_prenom,
+        u_vendeur.email as vendeur_email
+       FROM paiements p
+       JOIN annonces a ON p.annonce_id = a.id
+       JOIN utilisateurs u_acheteur ON p.acheteur_id = u_acheteur.id
+       JOIN utilisateurs u_vendeur ON p.vendeur_id = u_vendeur.id
+       WHERE p.reference_transaction = $1
+       AND (p.acheteur_id = $2 OR p.vendeur_id = $2)`,
+      [reference, req.utilisateur.id]
+    );
+
+    if (paiement.rows.length === 0) {
+      return res.status(404).json({
+        succes: false,
+        message: 'Paiement introuvable'
+      });
+    }
+
+    const pdfBuffer = await genererRecuPaiement(paiement.rows[0]);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="recu_${reference}.pdf"`);
+    res.send(pdfBuffer);
+
+  } catch (erreur) {
+    console.error('Erreur génération reçu:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
+// Envoyer reçu par email
+const envoyerRecuEmail = async (req, res) => {
+  try {
+    const { reference } = req.params;
+
+    const paiement = await pool.query(
+      `SELECT p.*,
+        a.titre as annonce_titre, a.categorie, a.type_transaction, a.ville,
+        u_acheteur.nom as acheteur_nom, u_acheteur.prenom as acheteur_prenom,
+        u_acheteur.email as acheteur_email,
+        u_vendeur.nom as vendeur_nom, u_vendeur.prenom as vendeur_prenom,
+        u_vendeur.email as vendeur_email
+       FROM paiements p
+       JOIN annonces a ON p.annonce_id = a.id
+       JOIN utilisateurs u_acheteur ON p.acheteur_id = u_acheteur.id
+       JOIN utilisateurs u_vendeur ON p.vendeur_id = u_vendeur.id
+       WHERE p.reference_transaction = $1`,
+      [reference]
+    );
+
+    if (paiement.rows.length === 0) {
+      return res.status(404).json({
+        succes: false,
+        message: 'Paiement introuvable'
+      });
+    }
+
+    const p = paiement.rows[0];
+    const pdfBuffer = await genererRecuPaiement(p);
+
+    // Envoyer à l'acheteur et au vendeur
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD
+      }
+    });
+
+    const montantTotal = parseFloat(p.montant || 0);
+    const commission = parseFloat(p.commission_plateforme || 0);
+    const montantVendeur = montantTotal - commission;
+    const devise = p.devise || 'XOF';
+
+    const emailOptions = {
+      from: process.env.EMAIL_FROM,
+      subject: `Maison+ — Reçu de paiement ${p.reference_transaction}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1A56DB; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="color: white; margin: 0;">Maison<span style="color: #4ADE80;">+</span></h1>
+          </div>
+          <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 8px 8px;">
+            <h2 style="color: #16A34A;">✓ Paiement confirmé !</h2>
+            <p style="color: #64748b;">Votre reçu de paiement est joint en pièce jointe.</p>
+            <div style="background: white; border-radius: 8px; padding: 16px; margin: 20px 0;">
+              <p style="margin: 4px 0; color: #64748b;">Référence : <strong>${p.reference_transaction}</strong></p>
+              <p style="margin: 4px 0; color: #64748b;">Annonce : <strong>${p.annonce_titre}</strong></p>
+              <p style="margin: 4px 0; color: #64748b;">Montant : <strong>${montantTotal.toLocaleString('fr-FR')} ${devise}</strong></p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #e2e8f0;">
+            <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+              © 2026 MaisonPlus
+            </p>
+          </div>
+        </div>
+      `,
+      attachments: [{
+        filename: `recu_${p.reference_transaction}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }]
+    };
+
+    // Envoyer à l'acheteur
+    await transporter.sendMail({
+      ...emailOptions,
+      to: p.acheteur_email
+    });
+
+    // Envoyer au vendeur avec montant reçu
+    await transporter.sendMail({
+      ...emailOptions,
+      to: p.vendeur_email,
+      subject: `Maison+ — Vous avez reçu un paiement — ${p.reference_transaction}`,
+      html: emailOptions.html.replace(
+        `Montant : <strong>${montantTotal.toLocaleString('fr-FR')} ${devise}</strong>`,
+        `Montant reçu : <strong>${montantVendeur.toLocaleString('fr-FR')} ${devise}</strong>`
+      )
+    });
+
+    res.json({
+      succes: true,
+      message: 'Reçu envoyé par email aux deux parties !'
+    });
+
+  } catch (erreur) {
+    console.error('Erreur envoi reçu email:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
 module.exports = {
   initierPaiement,
   webhookCinetPay,
   webhookFlutterwave,
   verifierStatutPaiement,
   getHistoriquePaiements,
-  getCommission
+  getCommission,
+  telechargerRecu,
+  envoyerRecuEmail
 };

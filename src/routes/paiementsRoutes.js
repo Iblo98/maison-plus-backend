@@ -7,8 +7,16 @@ const {
   webhookFlutterwave,
   verifierStatutPaiement,
   getHistoriquePaiements,
-  getCommission
+  getCommission,
+  telechargerRecu,
+  envoyerRecuEmail
 } = require('../controllers/paiementsController');
+
+// Télécharger reçu PDF
+router.get('/recu/:reference', proteger, telechargerRecu);
+
+// Envoyer reçu par email
+router.post('/recu/:reference/email', proteger, envoyerRecuEmail);
 
 // Calculer commission (public)
 router.get('/commission', getCommission);
