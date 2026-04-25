@@ -187,10 +187,102 @@ const getMesAnnonces = async (req, res) => {
   }
 };
 
+// Statistiques détaillées par mois
+const getStatistiquesDetaillees = async (req, res) => {
+  try {
+    const utilisateur_id = req.utilisateur.id;
+
+    // Vues par mois sur les 6 derniers mois
+    const vuesParMois = await pool.query(`
+      SELECT 
+        TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') as mois,
+        DATE_TRUNC('month', created_at) as date_mois,
+        COALESCE(SUM(nb_vues), 0) as total_vues
+      FROM annonces
+      WHERE utilisateur_id = $1
+      AND created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY DATE_TRUNC('month', created_at)
+      ORDER BY date_mois ASC
+    `, [utilisateur_id]);
+
+    // Annonces par catégorie
+    const annoncesParCategorie = await pool.query(`
+      SELECT 
+        categorie,
+        COUNT(*) as total,
+        SUM(nb_vues) as vues
+      FROM annonces
+      WHERE utilisateur_id = $1
+      GROUP BY categorie
+      ORDER BY total DESC
+    `, [utilisateur_id]);
+
+    // Annonces par statut
+    const annoncesParStatut = await pool.query(`
+      SELECT 
+        statut,
+        COUNT(*) as total
+      FROM annonces
+      WHERE utilisateur_id = $1
+      GROUP BY statut
+    `, [utilisateur_id]);
+
+    // Messages reçus par mois
+    const messagesParMois = await pool.query(`
+      SELECT 
+        TO_CHAR(DATE_TRUNC('month', m.created_at), 'Mon YYYY') as mois,
+        DATE_TRUNC('month', m.created_at) as date_mois,
+        COUNT(*) as total_messages
+      FROM messages m
+      JOIN annonces a ON m.annonce_id = a.id
+      WHERE a.utilisateur_id = $1
+      AND m.created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY DATE_TRUNC('month', m.created_at)
+      ORDER BY date_mois ASC
+    `, [utilisateur_id]);
+
+    // Top annonces par vues
+    const topAnnonces = await pool.query(`
+      SELECT titre, nb_vues, categorie, statut, prix
+      FROM annonces
+      WHERE utilisateur_id = $1
+      ORDER BY nb_vues DESC
+      LIMIT 5
+    `, [utilisateur_id]);
+
+    // Revenus potentiels (annonces conclues)
+    const revenus = await pool.query(`
+      SELECT 
+        COALESCE(SUM(p.montant - p.commission_plateforme), 0) as total_recu,
+        COUNT(p.id) as nb_paiements
+      FROM paiements p
+      WHERE p.vendeur_id = $1
+      AND p.statut = 'complete'
+    `, [utilisateur_id]);
+
+    res.json({
+      succes: true,
+      statistiques: {
+        vues_par_mois: vuesParMois.rows,
+        annonces_par_categorie: annoncesParCategorie.rows,
+        annonces_par_statut: annoncesParStatut.rows,
+        messages_par_mois: messagesParMois.rows,
+        top_annonces: topAnnonces.rows,
+        revenus: revenus.rows[0]
+      }
+    });
+
+  } catch (erreur) {
+    console.error('Erreur statistiques:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
 module.exports = {
   getMonProfil,
   getProfilPublic,
   modifierProfil,
   changerMotDePasse,
-  getMesAnnonces
+  getMesAnnonces,
+  getStatistiquesDetaillees
 };

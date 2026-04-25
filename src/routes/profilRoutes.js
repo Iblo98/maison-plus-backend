@@ -6,9 +6,10 @@ const {
   getProfilPublic,
   modifierProfil,
   changerMotDePasse,
-  getMesAnnonces
+  getMesAnnonces,
+  getStatistiquesDetaillees
 } = require('../controllers/profilController');
-
+router.get('/statistiques', proteger, getStatistiquesDetaillees);
 // Routes publiques
 router.get('/public/:id', getProfilPublic);
 
