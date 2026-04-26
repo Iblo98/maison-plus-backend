@@ -21,10 +21,10 @@ const { creerNotification } = require('./controllers/notificationsController');
 const { nettoyerSporisationsExpirees } = require('./controllers/sponsorisationsController');
 const documentsRoutes = require('./routes/documentsRoutes');
 const disponibilitesRoutes = require('./routes/disponibilitesRoutes');
-app.use('/api/disponibilites', disponibilitesRoutes);
+
 const app = express();
 const serveur = http.createServer(app);
-
+app.use('/api/disponibilites', disponibilitesRoutes);
 const io = new Server(serveur, {
   cors: {
     origin: ['http://localhost:3001', 'http://localhost:3000'],
