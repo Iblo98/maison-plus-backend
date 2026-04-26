@@ -43,6 +43,18 @@ const inscription = async (req, res) => {
       });
     }
 
+    // Vérifier si téléphone existe déjà
+    const telephoneExiste = await pool.query(
+      'SELECT id FROM utilisateurs WHERE telephone = $1',
+      [telephone]
+    );
+
+    if (telephoneExiste.rows.length > 0) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Ce numéro de téléphone est déjà utilisé'
+    });
+  }
     // Vérifier téléphone existant
     const telExiste = await pool.query(
       'SELECT id FROM utilisateurs WHERE telephone = $1',

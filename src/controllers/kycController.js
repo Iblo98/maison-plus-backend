@@ -11,7 +11,6 @@ const uploadPhotoProfil = async (req, res) => {
       });
     }
 
-    // Vérifier taille minimale
     if (req.file.size < 50 * 1024) {
       return res.status(400).json({
         succes: false,
@@ -19,7 +18,6 @@ const uploadPhotoProfil = async (req, res) => {
       });
     }
 
-    // Upload sur Cloudinary
     const resultat = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         {
@@ -62,6 +60,20 @@ const uploadCNIB = async (req, res) => {
         succes: false,
         message: 'Les deux faces de la pièce d\'identité sont obligatoires (recto et verso)'
       });
+    }
+
+    // Détection doublon CNIB — vérifier si un autre compte a déjà soumis une CNIB
+    const autresComptesAvecCNIB = await pool.query(
+      `SELECT id, email, telephone FROM utilisateurs 
+       WHERE (cnib_recto_url IS NOT NULL OR cnib_verso_url IS NOT NULL)
+       AND id != $1
+       AND statut != 'banni'`,
+      [req.utilisateur.id]
+    );
+
+    if (autresComptesAvecCNIB.rows.length > 0) {
+      // Logger pour l'admin sans bloquer
+      console.warn(`⚠️ Vérification CNIB : l'utilisateur ${req.utilisateur.id} soumet une CNIB — ${autresComptesAvecCNIB.rows.length} autre(s) compte(s) avec CNIB existants`);
     }
 
     // Upload recto
@@ -137,6 +149,21 @@ const enregistrerPaiement = async (req, res) => {
       return res.status(400).json({
         succes: false,
         message: 'Opérateur non reconnu'
+      });
+    }
+
+    // Vérifier si ce numéro Mobile Money est déjà utilisé par un autre compte
+    const numeroExiste = await pool.query(
+      `SELECT id FROM utilisateurs 
+       WHERE mobile_money_numero = $1 
+       AND id != $2`,
+      [mobile_money_numero, req.utilisateur.id]
+    );
+
+    if (numeroExiste.rows.length > 0) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Ce numéro Mobile Money est déjà associé à un autre compte'
       });
     }
 
