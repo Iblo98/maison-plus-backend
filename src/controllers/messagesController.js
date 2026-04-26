@@ -254,4 +254,134 @@ const getMesConversations = async (req, res) => {
   }
 };
 
-module.exports = { envoyerMessage, getConversation, getMesConversations };
+// Exporter une conversation en PDF
+const exporterConversation = async (req, res) => {
+  try {
+    const { annonce_id, destinataire_id } = req.params;
+    const utilisateur_id = req.utilisateur.id;
+
+    // Récupérer les messages
+    const messages = await pool.query(
+      `SELECT m.*,
+        u_exp.nom as expediteur_nom, u_exp.prenom as expediteur_prenom,
+        u_dest.nom as destinataire_nom, u_dest.prenom as destinataire_prenom,
+        a.titre as annonce_titre, a.ville as annonce_ville
+       FROM messages m
+       JOIN utilisateurs u_exp ON m.expediteur_id = u_exp.id
+       JOIN utilisateurs u_dest ON m.destinataire_id = u_dest.id
+       JOIN annonces a ON m.annonce_id = a.id
+       WHERE m.annonce_id = $1
+       AND ((m.expediteur_id = $2 AND m.destinataire_id = $3)
+       OR (m.expediteur_id = $3 AND m.destinataire_id = $2))
+       ORDER BY m.created_at ASC`,
+      [annonce_id, utilisateur_id, destinataire_id]
+    );
+
+    if (messages.rows.length === 0) {
+      return res.status(404).json({
+        succes: false,
+        message: 'Aucun message trouvé'
+      });
+    }
+
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 50 });
+    const buffers = [];
+
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => {
+      const pdfBuffer = Buffer.concat(buffers);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition',
+        `attachment; filename="conversation_${annonce_id}.pdf"`);
+      res.send(pdfBuffer);
+    });
+
+    const m = messages.rows[0];
+
+    // En-tête
+    doc.rect(0, 0, 612, 80).fill('#1A56DB');
+    doc.fillColor('white').fontSize(22).font('Helvetica-Bold')
+      .text('MAISON+', 50, 20);
+    doc.fontSize(11).font('Helvetica')
+      .text('Export de conversation', 50, 48);
+    doc.fontSize(9)
+      .text(`Exporté le ${new Date().toLocaleString('fr-FR')}`, 350, 48, { align: 'right' });
+
+    doc.moveDown(3);
+
+    // Infos conversation
+    doc.fillColor('#1A56DB').fontSize(13).font('Helvetica-Bold')
+      .text('DÉTAILS DE LA CONVERSATION');
+    doc.moveDown(0.5);
+
+    doc.fillColor('#1E293B').fontSize(10).font('Helvetica');
+    doc.text(`Annonce : ${m.annonce_titre} — ${m.annonce_ville}`);
+    doc.text(`Entre : ${m.expediteur_prenom} ${m.expediteur_nom} et ${m.destinataire_prenom} ${m.destinataire_nom}`);
+    doc.text(`Nombre de messages : ${messages.rows.length}`);
+
+    doc.moveDown(1);
+    doc.moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#E2E8F0').lineWidth(1).stroke();
+    doc.moveDown(1);
+
+    // Messages
+    doc.fillColor('#1A56DB').fontSize(13).font('Helvetica-Bold')
+      .text('HISTORIQUE DES MESSAGES');
+    doc.moveDown(0.5);
+
+    messages.rows.forEach((msg) => {
+      const estExpediteur = msg.expediteur_id === utilisateur_id;
+      const nomEnvoyeur = `${msg.expediteur_prenom} ${msg.expediteur_nom}`;
+      const date = new Date(msg.created_at).toLocaleString('fr-FR');
+
+      // Fond coloré selon l'expéditeur
+      const bgColor = estExpediteur ? '#EFF6FF' : '#F0FDF4';
+      const textColor = estExpediteur ? '#1E40AF' : '#166534';
+
+      doc.rect(50, doc.y, 512, 50).fill(bgColor).stroke('#E2E8F0');
+
+      const yPos = doc.y - 45;
+
+      doc.fillColor(textColor).fontSize(9).font('Helvetica-Bold')
+        .text(`${nomEnvoyeur} — ${date}`, 60, yPos + 5);
+
+      doc.fillColor('#1E293B').fontSize(10).font('Helvetica')
+        .text(msg.contenu, 60, yPos + 18, {
+          width: 490,
+          lineBreak: true
+        });
+
+      if (msg.est_suspect) {
+        doc.fillColor('#EF4444').fontSize(8)
+          .text('⚠️ Message suspect', 60, doc.y - 5);
+      }
+
+      doc.moveDown(0.8);
+    });
+
+    // Pied de page
+    doc.moveDown(1);
+    doc.moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#E2E8F0').lineWidth(1).stroke();
+    doc.moveDown(0.5);
+    doc.fillColor('#94A3B8').fontSize(8).font('Helvetica')
+      .text(
+        'Ce document est un export officiel de conversation sur la plateforme MaisonPlus. ' +
+        'Il peut être utilisé comme preuve en cas de litige.',
+        { align: 'center' }
+      );
+    doc.text('© 2026 MaisonPlus — maisonplus.immobf@gmail.com', { align: 'center' });
+
+    doc.end();
+
+  } catch (erreur) {
+    console.error('Erreur export conversation:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
+module.exports = {
+  envoyerMessage,
+  getConversations: getMesConversations,
+  getMessages: getConversation,
+  exporterConversation
+};
