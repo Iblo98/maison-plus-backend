@@ -20,7 +20,8 @@ const sponsorisationsRoutes = require('./routes/sponsorisationsRoutes');
 const { creerNotification } = require('./controllers/notificationsController');
 const { nettoyerSporisationsExpirees } = require('./controllers/sponsorisationsController');
 const documentsRoutes = require('./routes/documentsRoutes');
-
+const disponibilitesRoutes = require('./routes/disponibilitesRoutes');
+app.use('/api/disponibilites', disponibilitesRoutes);
 const app = express();
 const serveur = http.createServer(app);
 
