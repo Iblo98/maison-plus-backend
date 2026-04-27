@@ -22,24 +22,29 @@ const { nettoyerSporisationsExpirees } = require('./controllers/sponsorisationsC
 const documentsRoutes = require('./routes/documentsRoutes');
 const disponibilitesRoutes = require('./routes/disponibilitesRoutes');
 
+const ORIGINES_AUTORISEES = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://maison-plus-frontend-jqbi.vercel.app',
+  'https://maison-plus-frontend-x748.vercel.app'
+];
+
 const app = express();
 const serveur = http.createServer(app);
-app.use('/api/disponibilites', disponibilitesRoutes);
+
 const io = new Server(serveur, {
   cors: {
-    origin: ['http://localhost:3001', 'http://localhost:3000'],
+    origin: ORIGINES_AUTORISEES,
     credentials: true
   }
 });
 
 app.use(cors({
-  origin: [
-    'http://localhost:3001',
-    'https://maison-plus-frontend-jqbi.vercel.app',
-    'https://maison-plus-frontend-x748.vercel.app'
-  ],
+  origin: ORIGINES_AUTORISEES,
   credentials: true
 }));
+
+app.use('/api/disponibilites', disponibilitesRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
