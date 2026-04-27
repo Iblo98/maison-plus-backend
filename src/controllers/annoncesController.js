@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { verifierEtEnvoyerAlertes } = require('./alertesController');
 const { enregistrerChangementPrix } = require('./historiquePrixController');
+
 // Créer une annonce
 const creerAnnonce = async (req, res) => {
   try {
@@ -35,7 +36,7 @@ const creerAnnonce = async (req, res) => {
       [
         req.utilisateur.id, titre, description, categorie, type_transaction,
         prix, superficie, nb_pieces, ville, quartier, adresse_complete,
-        disponible_du, disponible_au
+        disponible_du || null, disponible_au || null
       ]
     );
 
@@ -229,11 +230,20 @@ const modifierAnnonce = async (req, res) => {
         prix = COALESCE($3, prix),
         ville = COALESCE($4, ville),
         quartier = COALESCE($5, quartier),
-        disponible_du = COALESCE($6, disponible_du),
-        disponible_au = COALESCE($7, disponible_au),
+        disponible_du = CASE WHEN $6::text = '' OR $6 IS NULL THEN disponible_du ELSE $6::date END,
+        disponible_au = CASE WHEN $7::text = '' OR $7 IS NULL THEN disponible_au ELSE $7::date END,
         updated_at = NOW()
        WHERE id = $8 RETURNING *`,
-      [titre, description, prix, ville, quartier, disponible_du, disponible_au, id]
+      [
+        titre || null,
+        description || null,
+        prix || null,
+        ville || null,
+        quartier || null,
+        disponible_du || null,
+        disponible_au || null,
+        id
+      ]
     );
 
     res.json({
