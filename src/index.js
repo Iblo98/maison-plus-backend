@@ -26,7 +26,10 @@ const ORIGINES_AUTORISEES = [
   'http://localhost:3000',
   'http://localhost:3001',
   'https://maison-plus-frontend-jqbi.vercel.app',
-  'https://maison-plus-frontend-x748.vercel.app'
+  'https://maison-plus-frontend-x748.vercel.app',
+  'https://maison-plus-frontend-l1ea.vercel.app',
+  'https://maison-plus-frontend-6eao.vercel.app',
+  'https://maison-plus-frontend-icxq.vercel.app'
 ];
 
 const app = express();
