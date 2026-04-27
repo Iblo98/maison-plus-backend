@@ -33,7 +33,11 @@ const io = new Server(serveur, {
 });
 
 app.use(cors({
-  origin: ['http://localhost:3001', 'http://localhost:3000'],
+  origin: [
+    'http://localhost:3001',
+    'https://maison-plus-frontend-jqbi.vercel.app',
+    'https://maison-plus-frontend-x748.vercel.app'
+  ],
   credentials: true
 }));
 app.use(express.json());
