@@ -56,7 +56,7 @@ app.use('/api/sponsorisations', sponsorisationsRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/disponibilites', disponibilitesRoutes);
 app.use('/api/favoris', favorisRoutes);
-const alertesRoutes = require('./routes/alertesRoutes');
+app.use('/api/alertes', alertesRoutes);
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
