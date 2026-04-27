@@ -44,7 +44,7 @@ const creerAnnonce = async (req, res) => {
 
     res.status(201).json({
       succes: true,
-      message: 'Annonce créée et en attente de validation !',
+      message: 'Annonce créée !',
       annonce: nouvelleAnnonce.rows[0]
     });
 
@@ -55,64 +55,6 @@ const creerAnnonce = async (req, res) => {
 };
 
 // Lister toutes les annonces publiées
-const getAnnonces = async (req, res) => {
-  try {
-    const { ville, categorie, type_transaction, prix_min, prix_max } = req.query;
-
-    let query = `
-      SELECT a.*, u.nom, u.prenom, u.est_verifie,
-        (SELECT url FROM medias WHERE annonce_id = a.id
-         AND est_principale = true LIMIT 1) as photo_principale
-      FROM annonces a
-      JOIN utilisateurs u ON a.utilisateur_id = u.id
-      WHERE a.statut = 'publiee'
-    `;
-    const params = [];
-    let compteur = 1;
-
-    if (ville) {
-      query += ` AND a.ville ILIKE $${compteur}`;
-      params.push(`%${ville}%`);
-      compteur++;
-    }
-    if (categorie) {
-      query += ` AND a.categorie = $${compteur}`;
-      params.push(categorie);
-      compteur++;
-    }
-    if (type_transaction) {
-      query += ` AND a.type_transaction = $${compteur}`;
-      params.push(type_transaction);
-      compteur++;
-    }
-    if (prix_min) {
-      query += ` AND a.prix >= $${compteur}`;
-      params.push(prix_min);
-      compteur++;
-    }
-    if (prix_max) {
-      query += ` AND a.prix <= $${compteur}`;
-      params.push(prix_max);
-      compteur++;
-    }
-
-    query += ` ORDER BY a.est_sponsorisee DESC, a.created_at DESC`;
-
-    const annonces = await pool.query(query, params);
-
-    res.json({
-      succes: true,
-      total: annonces.rows.length,
-      annonces: annonces.rows
-    });
-
-  } catch (erreur) {
-    console.error('Erreur récupération annonces:', erreur);
-    res.status(500).json({ succes: false, message: 'Erreur serveur' });
-  }
-};
-
-// Voir une annonce en détail
 const getAnnonces = async (req, res) => {
   try {
     const {
@@ -218,6 +160,45 @@ const getAnnonces = async (req, res) => {
     res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
+
+// Voir une annonce en détail
+const getAnnonce = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await pool.query(
+      'UPDATE annonces SET nb_vues = nb_vues + 1 WHERE id = $1',
+      [id]
+    );
+
+    const annonce = await pool.query(
+      `SELECT a.*, u.nom, u.prenom, u.photo_profil_url as photo_profil, u.est_verifie, u.telephone,
+        (SELECT url FROM medias WHERE annonce_id = a.id
+         AND est_principale = true LIMIT 1) as photo_principale
+       FROM annonces a
+       JOIN utilisateurs u ON a.utilisateur_id = u.id
+       WHERE a.id = $1`,
+      [id]
+    );
+
+    if (annonce.rows.length === 0) {
+      return res.status(404).json({
+        succes: false,
+        message: 'Annonce introuvable'
+      });
+    }
+
+    res.json({
+      succes: true,
+      annonce: annonce.rows[0]
+    });
+
+  } catch (erreur) {
+    console.error('Erreur récupération annonce:', erreur);
+    res.status(500).json({ succes: false, message: 'Erreur serveur' });
+  }
+};
+
 // Modifier une annonce
 const modifierAnnonce = async (req, res) => {
   try {
