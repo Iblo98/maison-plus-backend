@@ -113,43 +113,111 @@ const getAnnonces = async (req, res) => {
 };
 
 // Voir une annonce en détail
-const getAnnonce = async (req, res) => {
+const getAnnonces = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      ville, categorie, type_transaction,
+      prix_min, prix_max, superficie_min, superficie_max,
+      nb_pieces_min, nb_pieces_max, recherche,
+      latitude, longitude, rayon
+    } = req.query;
 
-    await pool.query(
-      'UPDATE annonces SET nb_vues = nb_vues + 1 WHERE id = $1',
-      [id]
-    );
-
-    const annonce = await pool.query(
-      `SELECT a.*, u.nom, u.prenom, u.photo_profil_url as photo_profil, u.est_verifie, u.telephone,
+    let query = `
+      SELECT a.*, u.nom, u.prenom, u.est_verifie,
         (SELECT url FROM medias WHERE annonce_id = a.id
          AND est_principale = true LIMIT 1) as photo_principale
-       FROM annonces a
-       JOIN utilisateurs u ON a.utilisateur_id = u.id
-       WHERE a.id = $1`,
-      [id]
-    );
+        ${latitude && longitude && rayon
+          ? `, (6371 * acos(cos(radians($${1})) * cos(radians(a.latitude::float))
+              * cos(radians(a.longitude::float) - radians($${2}))
+              + sin(radians($${1})) * sin(radians(a.latitude::float)))) AS distance`
+          : ''}
+      FROM annonces a
+      JOIN utilisateurs u ON a.utilisateur_id = u.id
+      WHERE a.statut = 'publiee'
+    `;
 
-    if (annonce.rows.length === 0) {
-      return res.status(404).json({
-        succes: false,
-        message: 'Annonce introuvable'
-      });
+    const params = [];
+    let compteur = 1;
+
+    if (latitude && longitude && rayon) {
+      params.push(latitude, longitude);
+      compteur = 3;
+      query += ` AND a.latitude IS NOT NULL AND a.longitude IS NOT NULL
+        AND (6371 * acos(cos(radians($1)) * cos(radians(a.latitude::float))
+        * cos(radians(a.longitude::float) - radians($2))
+        + sin(radians($1)) * sin(radians(a.latitude::float)))) <= $${compteur}`;
+      params.push(rayon);
+      compteur++;
     }
+
+    if (recherche) {
+      query += ` AND (a.titre ILIKE $${compteur} OR a.description ILIKE $${compteur} OR a.ville ILIKE $${compteur} OR a.quartier ILIKE $${compteur})`;
+      params.push(`%${recherche}%`);
+      compteur++;
+    }
+    if (ville) {
+      query += ` AND a.ville ILIKE $${compteur}`;
+      params.push(`%${ville}%`);
+      compteur++;
+    }
+    if (categorie) {
+      query += ` AND a.categorie = $${compteur}`;
+      params.push(categorie);
+      compteur++;
+    }
+    if (type_transaction) {
+      query += ` AND a.type_transaction = $${compteur}`;
+      params.push(type_transaction);
+      compteur++;
+    }
+    if (prix_min) {
+      query += ` AND a.prix >= $${compteur}`;
+      params.push(prix_min);
+      compteur++;
+    }
+    if (prix_max) {
+      query += ` AND a.prix <= $${compteur}`;
+      params.push(prix_max);
+      compteur++;
+    }
+    if (superficie_min) {
+      query += ` AND a.superficie >= $${compteur}`;
+      params.push(superficie_min);
+      compteur++;
+    }
+    if (superficie_max) {
+      query += ` AND a.superficie <= $${compteur}`;
+      params.push(superficie_max);
+      compteur++;
+    }
+    if (nb_pieces_min) {
+      query += ` AND a.nb_pieces >= $${compteur}`;
+      params.push(nb_pieces_min);
+      compteur++;
+    }
+    if (nb_pieces_max) {
+      query += ` AND a.nb_pieces <= $${compteur}`;
+      params.push(nb_pieces_max);
+      compteur++;
+    }
+
+    query += latitude && longitude && rayon
+      ? ` ORDER BY distance ASC`
+      : ` ORDER BY a.est_sponsorisee DESC, a.created_at DESC`;
+
+    const annonces = await pool.query(query, params);
 
     res.json({
       succes: true,
-      annonce: annonce.rows[0]
+      total: annonces.rows.length,
+      annonces: annonces.rows
     });
 
   } catch (erreur) {
-    console.error('Erreur récupération annonce:', erreur);
+    console.error('Erreur récupération annonces:', erreur);
     res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
-
 // Modifier une annonce
 const modifierAnnonce = async (req, res) => {
   try {
