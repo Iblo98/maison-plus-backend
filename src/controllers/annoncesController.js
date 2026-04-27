@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { verifierEtEnvoyerAlertes } = require('./alertesController');
 
 // Créer une annonce
 const creerAnnonce = async (req, res) => {
@@ -37,6 +38,9 @@ const creerAnnonce = async (req, res) => {
         disponible_du, disponible_au
       ]
     );
+
+    // Envoyer alertes aux utilisateurs intéressés
+    verifierEtEnvoyerAlertes(nouvelleAnnonce.rows[0].id);
 
     res.status(201).json({
       succes: true,
@@ -119,7 +123,7 @@ const getAnnonce = async (req, res) => {
     );
 
     const annonce = await pool.query(
-      `SELECT a.*, u.nom, u.prenom, u.photo_profil, u.est_verifie, u.telephone,
+      `SELECT a.*, u.nom, u.prenom, u.photo_profil_url as photo_profil, u.est_verifie, u.telephone,
         (SELECT url FROM medias WHERE annonce_id = a.id
          AND est_principale = true LIMIT 1) as photo_principale
        FROM annonces a
@@ -234,7 +238,6 @@ const marquerStatut = async (req, res) => {
       });
     }
 
-    // Vérifier que l'annonce appartient à l'utilisateur
     const annonce = await pool.query(
       'SELECT * FROM annonces WHERE id = $1 AND utilisateur_id = $2',
       [id, req.utilisateur.id]
