@@ -1,6 +1,6 @@
 const pool = require('../config/database');
 const { verifierEtEnvoyerAlertes } = require('./alertesController');
-
+const { enregistrerChangementPrix } = require('./historiquePrixController');
 // Créer une annonce
 const creerAnnonce = async (req, res) => {
   try {
@@ -215,6 +215,11 @@ const modifierAnnonce = async (req, res) => {
         succes: false,
         message: 'Annonce introuvable ou non autorisé'
       });
+    }
+
+    // Enregistrer historique prix si changement
+    if (prix && parseFloat(prix) !== parseFloat(annonce.rows[0].prix)) {
+      await enregistrerChangementPrix(id, annonce.rows[0].prix, prix);
     }
 
     const annonceModifiee = await pool.query(
