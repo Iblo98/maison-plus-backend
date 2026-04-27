@@ -22,38 +22,24 @@ const { nettoyerSporisationsExpirees } = require('./controllers/sponsorisationsC
 const documentsRoutes = require('./routes/documentsRoutes');
 const disponibilitesRoutes = require('./routes/disponibilitesRoutes');
 
-const ORIGINES_AUTORISEES = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://maison-plus-frontend-jqbi.vercel.app',
-  'https://maison-plus-frontend-x748.vercel.app',
-  'https://maison-plus-frontend-l1ea.vercel.app',
-  'https://maison-plus-frontend-6eao.vercel.app',
-  'https://maison-plus-frontend-icxq.vercel.app'
-];
-
 const app = express();
 const serveur = http.createServer(app);
 
-const io = new Server(serveur, {
-  cors: {
-    origin: ORIGINES_AUTORISEES,
-    credentials: true
-  }
-});
+// ✅ CORS wildcard — autorise tout
+app.use(cors());
 
-app.use(cors({
-  origin: ORIGINES_AUTORISEES,
-  credentials: true
-}));
-
-app.use('/api/disponibilites', disponibilitesRoutes);
+// ✅ Body parsers AVANT les routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ✅ Socket.io
+const io = new Server(serveur, {
+  cors: { origin: '*' }
+});
+
 app.set('io', io);
 
-// Routes
+// ✅ Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/annonces', annoncesRoutes);
 app.use('/api/medias', mediasRoutes);
@@ -67,12 +53,13 @@ app.use('/api/devise', deviseRoutes);
 app.use('/api/avis', avisRoutes);
 app.use('/api/sponsorisations', sponsorisationsRoutes);
 app.use('/api/documents', documentsRoutes);
+app.use('/api/disponibilites', disponibilitesRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
 
-// Socket.io
+// Socket.io events
 const utilisateursConnectes = new Map();
 
 io.on('connection', (socket) => {
@@ -89,7 +76,6 @@ io.on('connection', (socket) => {
   socket.on('nouveau_message', async (message) => {
     const salle = `conv_${message.annonce_id}_${[message.expediteur_id, message.destinataire_id].sort().join('_')}`;
     io.to(salle).emit('message_recu', message);
-
     io.to(`user_${message.destinataire_id}`).emit('notification_message', message);
 
     await creerNotification(
@@ -114,7 +100,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Nettoyer les sponsorisations expirées toutes les heures
+// Nettoyage sponsorisations expirées
 setInterval(nettoyerSporisationsExpirees, 3600000);
 nettoyerSporisationsExpirees();
 
