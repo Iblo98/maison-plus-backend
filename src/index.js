@@ -29,6 +29,7 @@ const badgesRoutes = require('./routes/badgesRoutes');
 const estimationPrixRoutes = require('./routes/estimationPrixRoutes');
 const abonnementsRoutes = require('./routes/abonnementsRoutes');
 const rapportMarcheRoutes = require('./routes/rapportMarcheRoutes');
+const reservationsRoutes = require('./routes/reservationsRoutes');
 const app = express();
 const serveur = http.createServer(app);
 
@@ -69,6 +70,7 @@ app.use('/api/parrainages', parrainagesRoutes);
 app.use('/api/estimation-prix', estimationPrixRoutes);
 app.use('/api/abonnements', abonnementsRoutes);
 app.use('/api/rapport-marche', rapportMarcheRoutes);
+app.use('/api/reservations', reservationsRoutes);
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
