@@ -8,7 +8,8 @@ const creerAnnonce = async (req, res) => {
     const {
       titre, description, categorie, type_transaction,
       prix, superficie, nb_pieces, ville, quartier,
-      adresse_complete, disponible_du, disponible_au
+      adresse_complete, disponible_du, disponible_au,
+      conditions_remboursement, delai_liberation
     } = req.body;
 
     if (!titre || !categorie || !type_transaction || !prix || !ville) {
@@ -30,13 +31,14 @@ const creerAnnonce = async (req, res) => {
       `INSERT INTO annonces 
         (utilisateur_id, titre, description, categorie, type_transaction,
          prix, superficie, nb_pieces, ville, quartier, adresse_complete,
-         disponible_du, disponible_au, statut)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'publiee')
+         disponible_du, disponible_au, conditions_remboursement, delai_liberation, statut)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'publiee')
        RETURNING *`,
       [
         req.utilisateur.id, titre, description, categorie, type_transaction,
         prix, superficie, nb_pieces, ville, quartier, adresse_complete,
-        disponible_du || null, disponible_au || null
+        disponible_du || null, disponible_au || null,
+        conditions_remboursement || null, delai_liberation || null
       ]
     );
 
@@ -204,7 +206,11 @@ const getAnnonce = async (req, res) => {
 const modifierAnnonce = async (req, res) => {
   try {
     const { id } = req.params;
-    const { titre, description, prix, ville, quartier, disponible_du, disponible_au } = req.body;
+    const {
+      titre, description, prix, ville, quartier,
+      disponible_du, disponible_au,
+      conditions_remboursement, delai_liberation
+    } = req.body;
 
     const annonce = await pool.query(
       'SELECT * FROM annonces WHERE id = $1 AND utilisateur_id = $2',
@@ -232,8 +238,10 @@ const modifierAnnonce = async (req, res) => {
         quartier = COALESCE($5, quartier),
         disponible_du = CASE WHEN $6::text = '' OR $6 IS NULL THEN disponible_du ELSE $6::date END,
         disponible_au = CASE WHEN $7::text = '' OR $7 IS NULL THEN disponible_au ELSE $7::date END,
+        conditions_remboursement = COALESCE($8, conditions_remboursement),
+        delai_liberation = COALESCE($9, delai_liberation),
         updated_at = NOW()
-       WHERE id = $8 RETURNING *`,
+       WHERE id = $10 RETURNING *`,
       [
         titre || null,
         description || null,
@@ -242,6 +250,8 @@ const modifierAnnonce = async (req, res) => {
         quartier || null,
         disponible_du || null,
         disponible_au || null,
+        conditions_remboursement || null,
+        delai_liberation || null,
         id
       ]
     );
