@@ -18,12 +18,22 @@ const toggleFavori = async (req, res) => {
         'DELETE FROM favoris WHERE utilisateur_id = $1 AND annonce_id = $2',
         [utilisateur_id, annonce_id]
       );
+      // Décrémenter nb_interesses
+      await pool.query(
+        'UPDATE annonces SET nb_interesses = GREATEST(0, nb_interesses - 1) WHERE id = $1',
+        [annonce_id]
+      );
       res.json({ succes: true, favori: false, message: 'Retiré des favoris' });
     } else {
       // Ajouter aux favoris
       await pool.query(
         'INSERT INTO favoris (utilisateur_id, annonce_id) VALUES ($1, $2)',
         [utilisateur_id, annonce_id]
+      );
+      // Incrémenter nb_interesses
+      await pool.query(
+        'UPDATE annonces SET nb_interesses = nb_interesses + 1 WHERE id = $1',
+        [annonce_id]
       );
       res.json({ succes: true, favori: true, message: 'Ajouté aux favoris !' });
     }
@@ -32,7 +42,6 @@ const toggleFavori = async (req, res) => {
     res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
-
 // Récupérer tous les favoris de l'utilisateur
 const getMesFavoris = async (req, res) => {
   try {
