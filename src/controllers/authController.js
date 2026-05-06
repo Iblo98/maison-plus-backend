@@ -9,13 +9,18 @@ const {
   envoyerDossierAdmin,
   envoyerConfirmationInscription
 } = require('../config/email');
-
 const { genererPDFInscription, genererWordInscription } = require('../config/documents');
 const { creerNotification } = require('./notificationsController');
+const { validerEntreprise } = require('../utils/validationEntreprise');
+
 // Inscription
 const inscription = async (req, res) => {
   try {
-    const { nom, prenom, email, telephone, mot_de_passe } = req.body;
+    const {
+      nom, prenom, email, telephone, mot_de_passe,
+      type_compte, nom_entreprise, rccm, ifu,
+      secteur_activite, site_web
+    } = req.body;
 
     if (!nom || !prenom || !email || !telephone || !mot_de_passe) {
       return res.status(400).json({
@@ -43,18 +48,6 @@ const inscription = async (req, res) => {
       });
     }
 
-    // Vérifier si téléphone existe déjà
-    const telephoneExiste = await pool.query(
-      'SELECT id FROM utilisateurs WHERE telephone = $1',
-      [telephone]
-    );
-
-    if (telephoneExiste.rows.length > 0) {
-      return res.status(400).json({
-        succes: false,
-        message: 'Ce numéro de téléphone est déjà utilisé'
-    });
-  }
     // Vérifier téléphone existant
     const telExiste = await pool.query(
       'SELECT id FROM utilisateurs WHERE telephone = $1',
@@ -67,6 +60,30 @@ const inscription = async (req, res) => {
       });
     }
 
+    // Validation automatique entreprise
+    let statutVerification = 'non_verifie';
+    let estVerifie = false;
+    let messageVerification = '';
+
+    if (type_compte === 'professionnel') {
+      const validation = validerEntreprise({
+        nom_entreprise, rccm, ifu, secteur_activite
+      });
+
+      statutVerification = validation.statut;
+      estVerifie = validation.badge;
+      messageVerification = validation.message;
+
+      // Rejeter si données invalides
+      if (!validation.valide) {
+        return res.status(400).json({
+          succes: false,
+          message: validation.message,
+          erreurs: validation.erreurs
+        });
+      }
+    }
+
     // Chiffrer le mot de passe
     const motDePasseChiffre = await bcrypt.hash(mot_de_passe, 12);
 
@@ -75,24 +92,26 @@ const inscription = async (req, res) => {
     const emailTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     // Créer l'utilisateur
-    const {
-      type_compte, nom_entreprise, rccm, ifu,
-      secteur_activite, site_web
-    } = req.body;
-
     const nouvelUtilisateur = await pool.query(
       `INSERT INTO utilisateurs 
         (nom, prenom, email, telephone, mot_de_passe,
         email_verification_token, email_verification_expires,
         statut, type_compte, nom_entreprise, rccm, ifu,
-        secteur_activite, site_web)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'actif', $8, $9, $10, $11, $12, $13)
+        secteur_activite, site_web, statut_verification, est_verifie)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'actif', $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *`,
-      [nom, prenom, email, telephone, motDePasseChiffre,
-      emailToken, emailTokenExpires,
-      type_compte || 'particulier', nom_entreprise || null,
-      rccm || null, ifu || null,
-      secteur_activite || null, site_web || null]
+      [
+        nom, prenom, email, telephone, motDePasseChiffre,
+        emailToken, emailTokenExpires,
+        type_compte || 'particulier',
+        nom_entreprise || null,
+        rccm || null,
+        ifu || null,
+        secteur_activite || null,
+        site_web || null,
+        statutVerification,
+        estVerifie
+      ]
     );
 
     const utilisateur = nouvelUtilisateur.rows[0];
@@ -108,11 +127,7 @@ const inscription = async (req, res) => {
     try {
       const pdfBuffer = await genererPDFInscription(utilisateur);
       const wordBuffer = await genererWordInscription(utilisateur);
-
-      // Envoyer dossier à l'admin
       await envoyerDossierAdmin(utilisateur, pdfBuffer, wordBuffer);
-
-      // Envoyer confirmation à l'utilisateur
       await envoyerConfirmationInscription(utilisateur, pdfBuffer);
     } catch (docErr) {
       console.error('Erreur génération documents:', docErr);
@@ -120,13 +135,28 @@ const inscription = async (req, res) => {
 
     // Notification de bienvenue
     try {
+      const messageNotif = type_compte === 'professionnel'
+        ? `Bonjour ${prenom}, votre compte professionnel a été créé. ${messageVerification}`
+        : `Bonjour ${prenom}, votre compte a été créé avec succès. Complétez votre profil pour publier des annonces.`;
+
       await creerNotification(
         utilisateur.id,
         'bienvenue',
-        '🎉 Bienvenue sur Maison+ !',
-        `Bonjour ${prenom}, votre compte a été créé avec succès. Complétez votre profil pour publier des annonces.`,
+        type_compte === 'professionnel' ? '🏢 Compte professionnel créé !' : '🎉 Bienvenue sur Maison+ !',
+        messageNotif,
         '/kyc'
       );
+
+      // Notification badge vérifié si accordé automatiquement
+      if (estVerifie) {
+        await creerNotification(
+          utilisateur.id,
+          'verification',
+          '✅ Compte professionnel vérifié !',
+          'Votre compte a été vérifié automatiquement. Le badge "Professionnel Vérifié" est maintenant affiché sur vos annonces.',
+          '/dashboard'
+        );
+      }
     } catch (notifErr) {
       console.error('Erreur notification bienvenue:', notifErr);
     }
@@ -138,9 +168,15 @@ const inscription = async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
+    const messageReponse = type_compte === 'professionnel'
+      ? `${messageVerification} Vérifiez votre email pour activer votre compte.`
+      : 'Compte créé ! Vérifiez votre email pour activer votre compte.';
+
     res.status(201).json({
       succes: true,
-      message: 'Compte créé ! Vérifiez votre email pour activer votre compte.',
+      message: messageReponse,
+      statut_verification: statutVerification,
+      badge_pro: estVerifie,
       token,
       utilisateur
     });
@@ -191,7 +227,6 @@ const verifierEmail = async (req, res) => {
       [utilisateur.rows[0].id]
     );
 
-    // Envoyer email de bienvenue
     try {
       await envoyerEmailBienvenue(
         utilisateur.rows[0].email,
@@ -280,6 +315,9 @@ const connexion = async (req, res) => {
         type_compte: utilisateur.type_compte,
         statut: utilisateur.statut,
         est_verifie: utilisateur.est_verifie,
+        statut_verification: utilisateur.statut_verification,
+        nom_entreprise: utilisateur.nom_entreprise,
+        badge_pro: utilisateur.badge_pro,
         photo_profil: utilisateur.photo_profil_url
       }
     });
@@ -310,7 +348,6 @@ const motDePasseOublie = async (req, res) => {
       [email]
     );
 
-    // On répond toujours OK pour ne pas révéler si l'email existe
     if (utilisateur.rows.length === 0) {
       return res.json({
         succes: true,
@@ -319,7 +356,7 @@ const motDePasseOublie = async (req, res) => {
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
+    const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
 
     await pool.query(
       `UPDATE utilisateurs SET
