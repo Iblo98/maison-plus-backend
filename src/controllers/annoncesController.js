@@ -6,20 +6,20 @@ const { enregistrerChangementPrix } = require('./historiquePrixController');
 const creerAnnonce = async (req, res) => {
   try {
     const {
-      titre, description, categorie, type_transaction,
+      titre, description, categorie, sous_type, type_transaction,
       prix, superficie, nb_pieces, ville, quartier,
       adresse_complete, disponible_du, disponible_au,
       conditions_remboursement, delai_liberation
     } = req.body;
 
-    if (!titre || !categorie || !type_transaction || !prix || !ville) {
+    if (!titre || !categorie || !prix || !ville) {
       return res.status(400).json({
         succes: false,
-        message: 'Titre, catégorie, type, prix et ville sont obligatoires'
+        message: 'Titre, catégorie, prix et ville sont obligatoires'
       });
     }
 
-    const categoriesValides = ['maison', 'parcelle', 'hotel', 'marketplace', 'restaurant'];
+    const categoriesValides = ['maison', 'parcelle', 'hotel', 'marketplace', 'restaurant', 'ceremonie'];
     if (!categoriesValides.includes(categorie)) {
       return res.status(400).json({
         succes: false,
@@ -27,15 +27,29 @@ const creerAnnonce = async (req, res) => {
       });
     }
 
+    // Pour restaurant pas de type_transaction obligatoire
+    const categoriesAvecTransaction = ['maison', 'parcelle', 'hotel', 'ceremonie'];
+    if (categoriesAvecTransaction.includes(categorie) && !type_transaction) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Type de transaction obligatoire pour cette catégorie'
+      });
+    }
+
+    const typeTransaction = type_transaction ||
+      (categorie === 'marketplace' ? 'vente' :
+       categorie === 'ceremonie' ? 'location' : 'vente');
+
     const nouvelleAnnonce = await pool.query(
       `INSERT INTO annonces 
-        (utilisateur_id, titre, description, categorie, type_transaction,
+        (utilisateur_id, titre, description, categorie, sous_type, type_transaction,
          prix, superficie, nb_pieces, ville, quartier, adresse_complete,
          disponible_du, disponible_au, conditions_remboursement, delai_liberation, statut)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'publiee')
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'publiee')
        RETURNING *`,
       [
-        req.utilisateur.id, titre, description, categorie, type_transaction,
+        req.utilisateur.id, titre, description, categorie,
+        sous_type || null, typeTransaction,
         prix, superficie, nb_pieces, ville, quartier, adresse_complete,
         disponible_du || null, disponible_au || null,
         conditions_remboursement || null, delai_liberation || null
