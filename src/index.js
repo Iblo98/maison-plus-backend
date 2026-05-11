@@ -34,7 +34,12 @@ const app = express();
 const serveur = http.createServer(app);
 
 // ✅ CORS wildcard — autorise tout
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.options('*', cors());
 
 // ✅ Body parsers AVANT les routes
 app.use(express.json());
