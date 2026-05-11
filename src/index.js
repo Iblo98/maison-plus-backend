@@ -39,8 +39,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.options('*', cors());
-
+app.options('/(.*)', cors());
 // ✅ Body parsers AVANT les routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
