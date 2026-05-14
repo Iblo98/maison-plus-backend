@@ -48,6 +48,21 @@ const creerAvis = async (req, res) => {
       [annonce_id, auteur_id, destinataire_id, note, commentaire.trim()]
     );
 
+
+    // Notifier le destinataire
+    const { creerNotification } = require('./notificationsController');
+    const auteur = await pool.query(
+      'SELECT prenom, nom FROM utilisateurs WHERE id = $1',
+      [auteur_id]
+    );
+    creerNotification(
+      destinataire_id,
+      'avis',
+      `⭐ Nouvel avis — ${note}/5`,
+      `${auteur.rows[0].prenom} ${auteur.rows[0].nom} vous a laissé un avis : "${commentaire.trim().substring(0, 50)}"`,
+      `/profil/${destinataire_id}`
+    ).catch(console.error);
+    
     res.status(201).json({
       succes: true,
       message: 'Avis publié avec succès !',
