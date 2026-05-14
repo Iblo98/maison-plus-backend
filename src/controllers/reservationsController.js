@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const nodemailer = require('nodemailer');
+const { creerNotification } = require('./notificationsController');
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -20,7 +21,7 @@ const creerReservation = async (req, res) => {
     }
 
     const annonce = await pool.query(
-      `SELECT a.*, u.email as proprio_email, u.prenom as proprio_prenom
+      `SELECT a.*, u.email as proprio_email, u.prenom as proprio_prenom, u.id as proprio_id
        FROM annonces a
        JOIN utilisateurs u ON a.utilisateur_id = u.id
        WHERE a.id = $1 AND a.statut = 'publiee'`,
@@ -86,13 +87,22 @@ const creerReservation = async (req, res) => {
       [annonce_id, locataire_id, date_debut, date_fin, nbJours, prixTotal, message || '']
     );
 
-    // Notifier le propriétaire — non bloquant
+    // Notifier le propriétaire
     const locataire = await pool.query(
       'SELECT prenom, nom, email FROM utilisateurs WHERE id = $1',
       [locataire_id]
     );
 
-    // Email en arrière-plan sans await
+    // Notification in-app au propriétaire
+    creerNotification(
+      a.proprio_id,
+      'reservation',
+      '📅 Nouvelle demande de réservation !',
+      `${locataire.rows[0].prenom} ${locataire.rows[0].nom} souhaite réserver "${a.titre}" du ${new Date(date_debut).toLocaleDateString('fr-FR')} au ${new Date(date_fin).toLocaleDateString('fr-FR')}.`,
+      '/reservations'
+    ).catch(console.error);
+
+    // Email en arrière-plan
     transporter.sendMail({
       from: process.env.EMAIL_FROM,
       to: a.proprio_email,
@@ -112,7 +122,7 @@ const creerReservation = async (req, res) => {
               <p><strong>Prix total :</strong> ${new Intl.NumberFormat('fr-FR').format(prixTotal)} XOF</p>
               ${message ? `<p><strong>Message :</strong> ${message}</p>` : ''}
             </div>
-            <a href="${process.env.FRONTEND_URL}/dashboard"
+            <a href="${process.env.FRONTEND_URL}/reservations"
               style="display: block; background: #1A56DB; color: white; text-align: center;
                      padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold;">
               Gérer la réservation →
@@ -192,6 +202,7 @@ const mettreAJourStatut = async (req, res) => {
 
     const reservation = await pool.query(
       `SELECT r.*, a.utilisateur_id, a.titre,
+        r.locataire_id,
         u.email as locataire_email, u.prenom as locataire_prenom,
         p.email as proprio_email, p.prenom as proprio_prenom
        FROM reservations r
@@ -208,8 +219,17 @@ const mettreAJourStatut = async (req, res) => {
 
     const r = reservation.rows[0];
 
-    if (r.utilisateur_id !== req.utilisateur.id) {
+    // Autoriser propriétaire ET locataire (pour annulation et paiement)
+    const estProprietaire = r.utilisateur_id === req.utilisateur.id;
+    const estLocataire = r.locataire_id === req.utilisateur.id;
+
+    if (!estProprietaire && !estLocataire) {
       return res.status(403).json({ succes: false, message: 'Non autorisé' });
+    }
+
+    // Locataire ne peut que payer ou annuler
+    if (estLocataire && !['payee', 'annulee'].includes(statut)) {
+      return res.status(403).json({ succes: false, message: 'Action non autorisée' });
     }
 
     // Mettre à jour
@@ -229,13 +249,72 @@ const mettreAJourStatut = async (req, res) => {
       );
     }
 
-    // Répondre immédiatement sans attendre l'email
+    // Notifications in-app
+    const notifConfig = {
+      acceptee: {
+        titre: '✅ Réservation acceptée !',
+        message: `Votre réservation pour "${r.titre}" a été acceptée. Payez maintenant pour confirmer.`,
+        lien: '/reservations',
+        type: 'reservation'
+      },
+      refusee: {
+        titre: '❌ Réservation refusée',
+        message: `Votre réservation pour "${r.titre}" a été refusée.`,
+        lien: '/reservations',
+        type: 'reservation'
+      },
+      contre_proposition: {
+        titre: '📅 Nouvelles dates proposées',
+        message: `Le propriétaire de "${r.titre}" vous propose de nouvelles dates disponibles.`,
+        lien: '/reservations',
+        type: 'reservation'
+      },
+      payee: {
+        titre: '💰 Paiement reçu !',
+        message: `Le locataire a payé pour "${r.titre}". Confirmez son arrivée.`,
+        lien: '/reservations',
+        type: 'paiement'
+      },
+      confirmee: {
+        titre: '🎉 Arrivée confirmée !',
+        message: `Votre arrivée pour "${r.titre}" a été confirmée. Bon séjour !`,
+        lien: '/reservations',
+        type: 'reservation'
+      },
+      annulee: {
+        titre: '🚫 Réservation annulée',
+        message: `La réservation pour "${r.titre}" a été annulée.`,
+        lien: '/reservations',
+        type: 'reservation'
+      },
+    };
+
+    if (notifConfig[statut]) {
+      const cfg = notifConfig[statut];
+      // Notifier le locataire sauf si c'est lui qui agit
+      if (!estLocataire) {
+        creerNotification(
+          r.locataire_id, cfg.type, cfg.titre, cfg.message, cfg.lien
+        ).catch(console.error);
+      }
+      // Notifier le propriétaire si c'est le locataire qui agit
+      if (estLocataire && statut === 'payee') {
+        creerNotification(
+          r.utilisateur_id, 'paiement',
+          '💰 Paiement reçu !',
+          `Le locataire a payé pour "${r.titre}". Confirmez son arrivée.`,
+          '/reservations'
+        ).catch(console.error);
+      }
+    }
+
+    // Répondre immédiatement
     res.json({
       succes: true,
       message: `Réservation mise à jour : ${statut}`
     });
 
-    // Email en arrière-plan sans bloquer
+    // Email en arrière-plan
     const messagesEmail = {
       acceptee: `✅ Votre réservation pour "${r.titre}" a été acceptée ! Procédez au paiement pour confirmer.`,
       refusee: `❌ Votre réservation pour "${r.titre}" a été refusée.`,
@@ -269,12 +348,12 @@ const mettreAJourStatut = async (req, res) => {
               <p>${messagesEmail[statut]}</p>
               ${contenuDates}
               <p><strong>Annonce :</strong> ${r.titre}</p>
-              <p><strong>Dates demandées :</strong> 
+              <p><strong>Dates :</strong> 
                 ${new Date(r.date_debut).toLocaleDateString('fr-FR')} → 
                 ${new Date(r.date_fin).toLocaleDateString('fr-FR')}
               </p>
               ${statut === 'acceptee' ? `
-                <a href="${process.env.FRONTEND_URL}/paiement?reservation=${id}"
+                <a href="${process.env.FRONTEND_URL}/reservations"
                   style="display: block; background: #16A34A; color: white; text-align: center;
                          padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold; margin-top: 20px;">
                   Payer maintenant →
