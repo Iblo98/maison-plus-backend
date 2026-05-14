@@ -86,44 +86,41 @@ const creerReservation = async (req, res) => {
       [annonce_id, locataire_id, date_debut, date_fin, nbJours, prixTotal, message || '']
     );
 
-    // Notifier le propriétaire
+    // Notifier le propriétaire — non bloquant
     const locataire = await pool.query(
       'SELECT prenom, nom, email FROM utilisateurs WHERE id = $1',
       [locataire_id]
     );
 
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM,
-        to: a.proprio_email,
-        subject: `🏠 Nouvelle demande de réservation — ${a.titre}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: #1A56DB; padding: 20px; text-align: center;">
-              <h1 style="color: white; margin: 0;">🏠 Maison+</h1>
-            </div>
-            <div style="padding: 30px;">
-              <h2>Bonjour ${a.proprio_prenom} !</h2>
-              <p>Nouvelle demande de réservation pour <strong>${a.titre}</strong>.</p>
-              <div style="background: #f9fafb; border-radius: 12px; padding: 20px; margin: 20px 0;">
-                <p><strong>Locataire :</strong> ${locataire.rows[0].prenom} ${locataire.rows[0].nom}</p>
-                <p><strong>Dates :</strong> ${new Date(date_debut).toLocaleDateString('fr-FR')} → ${new Date(date_fin).toLocaleDateString('fr-FR')}</p>
-                <p><strong>Durée :</strong> ${nbJours} jours</p>
-                <p><strong>Prix total :</strong> ${new Intl.NumberFormat('fr-FR').format(prixTotal)} XOF</p>
-                ${message ? `<p><strong>Message :</strong> ${message}</p>` : ''}
-              </div>
-              <a href="${process.env.FRONTEND_URL}/dashboard"
-                style="display: block; background: #1A56DB; color: white; text-align: center;
-                       padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold;">
-                Gérer la réservation →
-              </a>
-            </div>
+    // Email en arrière-plan sans await
+    transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: a.proprio_email,
+      subject: `🏠 Nouvelle demande de réservation — ${a.titre}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1A56DB; padding: 20px; text-align: center;">
+            <h1 style="color: white; margin: 0;">🏠 Maison+</h1>
           </div>
-        `
-      });
-    } catch (emailErr) {
-      console.error('Erreur email réservation:', emailErr);
-    }
+          <div style="padding: 30px;">
+            <h2>Bonjour ${a.proprio_prenom} !</h2>
+            <p>Nouvelle demande de réservation pour <strong>${a.titre}</strong>.</p>
+            <div style="background: #f9fafb; border-radius: 12px; padding: 20px; margin: 20px 0;">
+              <p><strong>Locataire :</strong> ${locataire.rows[0].prenom} ${locataire.rows[0].nom}</p>
+              <p><strong>Dates :</strong> ${new Date(date_debut).toLocaleDateString('fr-FR')} → ${new Date(date_fin).toLocaleDateString('fr-FR')}</p>
+              <p><strong>Durée :</strong> ${nbJours} jours</p>
+              <p><strong>Prix total :</strong> ${new Intl.NumberFormat('fr-FR').format(prixTotal)} XOF</p>
+              ${message ? `<p><strong>Message :</strong> ${message}</p>` : ''}
+            </div>
+            <a href="${process.env.FRONTEND_URL}/dashboard"
+              style="display: block; background: #1A56DB; color: white; text-align: center;
+                     padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold;">
+              Gérer la réservation →
+            </a>
+          </div>
+        </div>
+      `
+    }).catch(err => console.error('Erreur email réservation:', err));
 
     res.status(201).json({
       succes: true,
@@ -193,7 +190,6 @@ const mettreAJourStatut = async (req, res) => {
       return res.status(400).json({ succes: false, message: 'Statut invalide' });
     }
 
-    // Vérifier que c'est le propriétaire
     const reservation = await pool.query(
       `SELECT r.*, a.utilisateur_id, a.titre,
         u.email as locataire_email, u.prenom as locataire_prenom,
@@ -216,7 +212,7 @@ const mettreAJourStatut = async (req, res) => {
       return res.status(403).json({ succes: false, message: 'Non autorisé' });
     }
 
-    // Mettre à jour avec dates proposées si contre-proposition
+    // Mettre à jour
     if (statut === 'contre_proposition' && dates_proposees) {
       await pool.query(
         `UPDATE reservations SET 
@@ -233,7 +229,13 @@ const mettreAJourStatut = async (req, res) => {
       );
     }
 
-    // Email au locataire
+    // Répondre immédiatement sans attendre l'email
+    res.json({
+      succes: true,
+      message: `Réservation mise à jour : ${statut}`
+    });
+
+    // Email en arrière-plan sans bloquer
     const messagesEmail = {
       acceptee: `✅ Votre réservation pour "${r.titre}" a été acceptée ! Procédez au paiement pour confirmer.`,
       refusee: `❌ Votre réservation pour "${r.titre}" a été refusée.`,
@@ -242,62 +244,53 @@ const mettreAJourStatut = async (req, res) => {
     };
 
     if (messagesEmail[statut]) {
-      try {
-        let contenuDates = '';
-        if (statut === 'contre_proposition' && dates_proposees) {
-          contenuDates = `
-            <div style="background: #fff7ed; border-radius: 12px; padding: 15px; margin: 15px 0;">
-              <p><strong>Nouvelles dates proposées :</strong></p>
-              <p>Du ${new Date(dates_proposees.debut).toLocaleDateString('fr-FR')} 
-                 au ${new Date(dates_proposees.fin).toLocaleDateString('fr-FR')}</p>
-            </div>
-          `;
-        }
-
-        await transporter.sendMail({
-          from: process.env.EMAIL_FROM,
-          to: r.locataire_email,
-          subject: `${messagesEmail[statut]}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <div style="background: #1A56DB; padding: 20px; text-align: center;">
-                <h1 style="color: white; margin: 0;">🏠 Maison+</h1>
-              </div>
-              <div style="padding: 30px;">
-                <h2>Bonjour ${r.locataire_prenom} !</h2>
-                <p>${messagesEmail[statut]}</p>
-                ${contenuDates}
-                <p><strong>Annonce :</strong> ${r.titre}</p>
-                <p><strong>Dates demandées :</strong> 
-                  ${new Date(r.date_debut).toLocaleDateString('fr-FR')} → 
-                  ${new Date(r.date_fin).toLocaleDateString('fr-FR')}
-                </p>
-                ${statut === 'acceptee' ? `
-                  <a href="${process.env.FRONTEND_URL}/paiement?reservation=${id}"
-                    style="display: block; background: #16A34A; color: white; text-align: center;
-                           padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold; margin-top: 20px;">
-                    Payer maintenant →
-                  </a>
-                ` : `
-                  <a href="${process.env.FRONTEND_URL}/reservations"
-                    style="display: block; background: #1A56DB; color: white; text-align: center;
-                           padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold; margin-top: 20px;">
-                    Voir mes réservations →
-                  </a>
-                `}
-              </div>
-            </div>
-          `
-        });
-      } catch (emailErr) {
-        console.error('Erreur email:', emailErr);
+      let contenuDates = '';
+      if (statut === 'contre_proposition' && dates_proposees) {
+        contenuDates = `
+          <div style="background: #fff7ed; border-radius: 12px; padding: 15px; margin: 15px 0;">
+            <p><strong>Nouvelles dates proposées :</strong></p>
+            <p>Du ${new Date(dates_proposees.debut).toLocaleDateString('fr-FR')} 
+               au ${new Date(dates_proposees.fin).toLocaleDateString('fr-FR')}</p>
+          </div>
+        `;
       }
-    }
 
-    res.json({
-      succes: true,
-      message: `Réservation mise à jour : ${statut}`
-    });
+      transporter.sendMail({
+        from: process.env.EMAIL_FROM,
+        to: r.locataire_email,
+        subject: messagesEmail[statut],
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #1A56DB; padding: 20px; text-align: center;">
+              <h1 style="color: white; margin: 0;">🏠 Maison+</h1>
+            </div>
+            <div style="padding: 30px;">
+              <h2>Bonjour ${r.locataire_prenom} !</h2>
+              <p>${messagesEmail[statut]}</p>
+              ${contenuDates}
+              <p><strong>Annonce :</strong> ${r.titre}</p>
+              <p><strong>Dates demandées :</strong> 
+                ${new Date(r.date_debut).toLocaleDateString('fr-FR')} → 
+                ${new Date(r.date_fin).toLocaleDateString('fr-FR')}
+              </p>
+              ${statut === 'acceptee' ? `
+                <a href="${process.env.FRONTEND_URL}/paiement?reservation=${id}"
+                  style="display: block; background: #16A34A; color: white; text-align: center;
+                         padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold; margin-top: 20px;">
+                  Payer maintenant →
+                </a>
+              ` : `
+                <a href="${process.env.FRONTEND_URL}/reservations"
+                  style="display: block; background: #1A56DB; color: white; text-align: center;
+                         padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold; margin-top: 20px;">
+                  Voir mes réservations →
+                </a>
+              `}
+            </div>
+          </div>
+        `
+      }).catch(err => console.error('Erreur email:', err));
+    }
 
   } catch (erreur) {
     console.error('Erreur mise à jour réservation:', erreur);
