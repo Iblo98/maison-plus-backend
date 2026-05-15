@@ -31,9 +31,10 @@ const abonnementsRoutes = require('./routes/abonnementsRoutes');
 const rapportMarcheRoutes = require('./routes/rapportMarcheRoutes');
 const reservationsRoutes = require('./routes/reservationsRoutes');
 const signalementsRoutes = require('./routes/signalementsRoutes');
-app.use('/api/signalements', signalementsRoutes);
 const app = express();
 const serveur = http.createServer(app);
+
+
 
 // ✅ CORS wildcard — autorise tout
 app.use((req, res, next) => {
@@ -79,6 +80,7 @@ app.use('/api/estimation-prix', estimationPrixRoutes);
 app.use('/api/abonnements', abonnementsRoutes);
 app.use('/api/rapport-marche', rapportMarcheRoutes);
 app.use('/api/reservations', reservationsRoutes);
+app.use('/api/signalements', signalementsRoutes);
 app.get('/', (req, res) => {
   res.json({ message: '🏠 Bienvenue sur l\'API Maison+ !', version: '1.0.0', statut: 'En ligne' });
 });
