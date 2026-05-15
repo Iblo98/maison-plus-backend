@@ -30,6 +30,8 @@ const estimationPrixRoutes = require('./routes/estimationPrixRoutes');
 const abonnementsRoutes = require('./routes/abonnementsRoutes');
 const rapportMarcheRoutes = require('./routes/rapportMarcheRoutes');
 const reservationsRoutes = require('./routes/reservationsRoutes');
+const signalementsRoutes = require('./routes/signalementsRoutes');
+app.use('/api/signalements', signalementsRoutes);
 const app = express();
 const serveur = http.createServer(app);
 
