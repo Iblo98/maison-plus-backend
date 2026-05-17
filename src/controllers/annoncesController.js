@@ -191,7 +191,9 @@ const getAnnonce = async (req, res) => {
     const annonce = await pool.query(
       `SELECT a.*, u.nom, u.prenom, u.photo_profil_url as photo_profil, u.est_verifie, u.telephone,
         (SELECT url FROM medias WHERE annonce_id = a.id
-         AND est_principale = true LIMIT 1) as photo_principale
+         AND est_principale = true LIMIT 1) as photo_principale,
+        (SELECT json_agg(url ORDER BY est_principale DESC, created_at ASC)
+         FROM medias WHERE annonce_id = a.id) as photos
        FROM annonces a
        JOIN utilisateurs u ON a.utilisateur_id = u.id
        WHERE a.id = $1`,
@@ -205,9 +207,12 @@ const getAnnonce = async (req, res) => {
       });
     }
 
+    const data = annonce.rows[0];
+    data.photos = data.photos || [];
+
     res.json({
       succes: true,
-      annonce: annonce.rows[0]
+      annonce: data
     });
 
   } catch (erreur) {
